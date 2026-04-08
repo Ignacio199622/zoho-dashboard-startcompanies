@@ -299,13 +299,17 @@ function isThisWeek(d){if(!d)return false;const now=new Date(),start=new Date(no
 // ===== MATCHING HELPERS =====
 function normEmail(e){return(e||'').trim().toLowerCase()}
 function pct(a,b){return b?Math.round(a/b*100):0}
-let collapsedSections={};
+function isJunkCanal(c){const l=(c||'').toLowerCase();return l.includes('timelines')||l.includes('+1786')||l.includes('+1789')||l==='otro'||l.includes('no se asign')}
+let collapsedSections=null;
+function initCollapsed(){if(!collapsedSections)collapsedSections={}}
 function mSection(id,title,content){
-  const isCol=collapsedSections[id];
+  initCollapsed();
+  const isCol=collapsedSections[id]!==false;// default collapsed
   return `<div class="metrics-row-title" onclick="toggleSection('${id}')"><span class="toggle-arrow${isCol?' collapsed':''}">\u25BC</span>${title}</div><div class="metrics-group${isCol?' collapsed':''}" id="mg_${id}">${content}</div>`;
 }
 function toggleSection(id){
-  collapsedSections[id]=!collapsedSections[id];
+  initCollapsed();
+  collapsedSections[id]=collapsedSections[id]===false?true:false;
   const el=document.getElementById('mg_'+id);
   const arrow=el.previousElementSibling.querySelector('.toggle-arrow');
   el.classList.toggle('collapsed');
@@ -365,7 +369,7 @@ function renderMetricsLeads(rows, allLLCs, allSeguimientos){
       const lead=rows.find(l=>normEmail(l['Mail'])===email);
       if(lead){const c=lead['Canal']||'Otro';if(canalConv[c])canalConv[c].llcs++}
     });
-    const canales=Object.entries(canalConv).filter(([,d])=>d.leads>=3).sort((a,b)=>pct(b[1].llcs,b[1].leads)-pct(a[1].llcs,a[1].leads));
+    const canales=Object.entries(canalConv).filter(([c,d])=>d.leads>=3&&!isJunkCanal(c)).sort((a,b)=>pct(b[1].llcs,b[1].leads)-pct(a[1].llcs,a[1].leads));
     if(canales.length){
       canalRentHTML=mSection('l_conv','Conversi\u00f3n por Canal (Lead \u2192 LLC)',`<div class="metrics-grid">
         ${canales.map(([c,d])=>`<div class="metric-card${pct(d.llcs,d.leads)>=20?' green':pct(d.llcs,d.leads)>=10?' cyan':' gold'}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${pct(d.llcs,d.leads)}%</div><div class="metric-sub">${d.llcs} LLCs de ${d.leads} leads</div></div>`).join('')}
@@ -413,19 +417,20 @@ function renderMetricsLLCs(rows, allLeads){
   const pagaron=rows.filter(r=>{const p=(r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago']||'').toLowerCase();return p&&p!=='sin pago'}).length;
   const sinPago=rows.filter(r=>{const p=(r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago']||'').toLowerCase();return !p||p==='sin pago'}).length;
 
-  // Velocidad de cierre
+  // Velocidad de cierre: desde contacto en calendario (meeting) hasta inicio de filing
   let velHTML='';
   if(allLeads){
     const days=[];
     rows.forEach(r=>{
-      const llcDate=parseDate(r['Fecha']);
+      const filingDate=parseDate(r['Fecha']);
       const email=normEmail(r['Email']);
-      if(!email||!llcDate)return;
+      if(!email||!filingDate)return;
+      // Find the earliest meeting date for this contact from leads
       const lead=allLeads.find(l=>normEmail(l['Mail'])===email);
       if(!lead)return;
-      const leadDate=parseDate(lead['Fecha']);
-      if(!leadDate)return;
-      const diff=Math.round((llcDate-leadDate)/(1000*60*60*24));
+      const contactDate=parseDate(lead['Fecha']);
+      if(!contactDate)return;
+      const diff=Math.round((filingDate-contactDate)/(1000*60*60*24));
       if(diff>=0)days.push(diff);
     });
     if(days.length){
@@ -434,7 +439,7 @@ function renderMetricsLLCs(rows, allLeads){
       const median=days[Math.floor(days.length/2)];
       const min=days[0];
       const max=days[days.length-1];
-      velHTML=mSection('ll_vel','Velocidad de Cierre (Lead \u2192 LLC)',`<div class="metrics-grid">
+      velHTML=mSection('ll_vel','Velocidad de Cierre (Contacto \u2192 Filing)',`<div class="metrics-grid">
         <div class="metric-card cyan"><div class="metric-label">Promedio</div><div class="metric-value">${avg}d</div></div>
         <div class="metric-card gold"><div class="metric-label">Mediana</div><div class="metric-value">${median}d</div></div>
         <div class="metric-card green"><div class="metric-label">M\u00e1s r\u00e1pido</div><div class="metric-value">${min}d</div></div>
@@ -473,7 +478,7 @@ function renderMetricsSeguimientos(rows){
     canalNS[c].total++;
     if(m.includes('no asisti'))canalNS[c].noShow++;
   });
-  const canalesNS=Object.entries(canalNS).filter(([,d])=>d.total>=2).sort((a,b)=>pct(b[1].noShow,b[1].total)-pct(a[1].noShow,a[1].total));
+  const canalesNS=Object.entries(canalNS).filter(([c,d])=>d.total>=2&&!isJunkCanal(c)).sort((a,b)=>pct(b[1].noShow,b[1].total)-pct(a[1].noShow,a[1].total));
 
   let nsHTML='';
   if(canalesNS.length){
