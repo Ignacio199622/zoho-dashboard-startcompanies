@@ -68,7 +68,12 @@ a{color:var(--cyan);text-decoration:none}
 .metric-card.red .metric-value{color:var(--red)}
 .metric-card.purple .metric-value{color:#b388ff}
 .metric-sub{font-size:11px;color:var(--text2);margin-top:4px}
-.metrics-row-title{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+.metrics-row-title{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;display:flex;align-items:center;gap:8px;user-select:none;padding:6px 0;transition:color .2s}
+.metrics-row-title:hover{color:var(--text)}
+.metrics-row-title .toggle-arrow{font-size:10px;transition:transform .2s;display:inline-block}
+.metrics-row-title .toggle-arrow.collapsed{transform:rotate(-90deg)}
+.metrics-group{overflow:hidden;transition:max-height .3s ease,opacity .2s ease;max-height:500px;opacity:1}
+.metrics-group.collapsed{max-height:0;opacity:0;margin-bottom:0}
 
 /* ===== TABS ===== */
 .tabs{display:flex;gap:4px;margin-bottom:16px;background:var(--surface);border-radius:var(--radius);padding:4px;border:1px solid var(--border);overflow-x:auto}
@@ -294,6 +299,18 @@ function isThisWeek(d){if(!d)return false;const now=new Date(),start=new Date(no
 // ===== MATCHING HELPERS =====
 function normEmail(e){return(e||'').trim().toLowerCase()}
 function pct(a,b){return b?Math.round(a/b*100):0}
+let collapsedSections={};
+function mSection(id,title,content){
+  const isCol=collapsedSections[id];
+  return `<div class="metrics-row-title" onclick="toggleSection('${id}')"><span class="toggle-arrow${isCol?' collapsed':''}">\u25BC</span>${title}</div><div class="metrics-group${isCol?' collapsed':''}" id="mg_${id}">${content}</div>`;
+}
+function toggleSection(id){
+  collapsedSections[id]=!collapsedSections[id];
+  const el=document.getElementById('mg_'+id);
+  const arrow=el.previousElementSibling.querySelector('.toggle-arrow');
+  el.classList.toggle('collapsed');
+  arrow.classList.toggle('collapsed');
+}
 
 // ===== METRICS =====
 function renderMetricsLeads(rows, allLLCs, allSeguimientos){
@@ -350,41 +367,43 @@ function renderMetricsLeads(rows, allLLCs, allSeguimientos){
     });
     const canales=Object.entries(canalConv).filter(([,d])=>d.leads>=3).sort((a,b)=>pct(b[1].llcs,b[1].leads)-pct(a[1].llcs,a[1].leads));
     if(canales.length){
-      canalRentHTML=`<div class="metrics-row-title">Conversi\u00f3n por Canal (Lead \u2192 LLC)</div><div class="metrics-grid">
+      canalRentHTML=mSection('l_conv','Conversi\u00f3n por Canal (Lead \u2192 LLC)',`<div class="metrics-grid">
         ${canales.map(([c,d])=>`<div class="metric-card${pct(d.llcs,d.leads)>=20?' green':pct(d.llcs,d.leads)>=10?' cyan':' gold'}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${pct(d.llcs,d.leads)}%</div><div class="metric-sub">${d.llcs} LLCs de ${d.leads} leads</div></div>`).join('')}
-      </div>`;
+      </div>`);
     }
   }
 
+  let vendorHTML='';
+  if(vendors.length){
+    vendorHTML=mSection('l_vend','Rendimiento por Vendedor',`<div class="metrics-grid">
+      ${vendors.map(([v,d])=>`<div class="metric-card"><div class="metric-label">${esc(v)}</div><div class="metric-value">${d.total}</div><div class="metric-sub">${pct(d.agendo,d.total)}% agendaron</div></div>`).join('')}
+    </div>`);
+  }
+
   return `
-    <div class="metrics-row-title">Resumen</div>
-    <div class="metrics-grid">
+    ${mSection('l_resumen','Resumen',`<div class="metrics-grid">
       <div class="metric-card"><div class="metric-label">Total Leads</div><div class="metric-value">${total}</div></div>
       <div class="metric-card green"><div class="metric-label">SQL Calificados</div><div class="metric-value">${calif}</div></div>
       <div class="metric-card red"><div class="metric-label">No Show</div><div class="metric-value">${noShow}</div></div>
       <div class="metric-card cyan"><div class="metric-label">Tasa Agendamiento</div><div class="metric-value">${tasaAg}%</div><div class="metric-sub">${agendo} de ${total} agendaron</div></div>
       <div class="metric-card gold"><div class="metric-label">Hoy / Semana / Total</div><div class="metric-value">${today}</div><div class="metric-sub">${week} semana \u00b7 ${total} total</div></div>
-    </div>
-    <div class="metrics-row-title">Leads por Canal</div>
-    <div class="metrics-grid">
+    </div>`)}
+    ${mSection('l_canal','Leads por Canal',`<div class="metrics-grid">
       <div class="metric-card"><div class="metric-label">Org\u00e1nico</div><div class="metric-value">${organic}</div></div>
       <div class="metric-card purple"><div class="metric-label">Meta Form</div><div class="metric-value">${meta}</div><div class="metric-sub">${metaAg} agendaron (${metaPct}%)</div></div>
       <div class="metric-card cyan"><div class="metric-label">Landing Page</div><div class="metric-value">${landing}</div></div>
       <div class="metric-card green"><div class="metric-label">WhatsApp</div><div class="metric-value">${wa}</div></div>
       <div class="metric-card gold"><div class="metric-label">Referidos</div><div class="metric-value">${referidos}</div></div>
-    </div>
-    <div class="metrics-row-title">Funnel Completo</div>
-    <div class="metrics-grid">
+    </div>`)}
+    ${mSection('l_funnel','Funnel Completo',`<div class="metrics-grid">
       <div class="metric-card"><div class="metric-label">Leads</div><div class="metric-value">${total}</div></div>
       <div class="metric-card cyan"><div class="metric-label">Agendaron</div><div class="metric-value">${agendo}</div><div class="metric-sub">${tasaAg}% de leads</div></div>
       <div class="metric-card green"><div class="metric-label">Asistieron</div><div class="metric-value">${asistioCount}</div><div class="metric-sub">${pct(asistioCount,agendo)}% de agendados</div></div>
       <div class="metric-card gold"><div class="metric-label">SQL Calificado</div><div class="metric-value">${calif}</div><div class="metric-sub">${pct(calif,asistioCount)}% de asistidos</div></div>
       <div class="metric-card purple"><div class="metric-label">LLC Abierta</div><div class="metric-value">${llcCount}</div><div class="metric-sub">${pct(llcCount,calif)}% de SQL</div></div>
-    </div>
+    </div>`)}
     ${canalRentHTML}
-    ${vendors.length?`<div class="metrics-row-title">Rendimiento por Vendedor</div><div class="metrics-grid">
-      ${vendors.map(([v,d])=>`<div class="metric-card"><div class="metric-label">${esc(v)}</div><div class="metric-value">${d.total}</div><div class="metric-sub">${pct(d.agendo,d.total)}% agendaron</div></div>`).join('')}
-    </div>`:''}`;
+    ${vendorHTML}`;
 }
 
 function renderMetricsLLCs(rows, allLeads){
@@ -415,25 +434,24 @@ function renderMetricsLLCs(rows, allLeads){
       const median=days[Math.floor(days.length/2)];
       const min=days[0];
       const max=days[days.length-1];
-      velHTML=`<div class="metrics-row-title">Velocidad de Cierre (Lead \u2192 LLC)</div><div class="metrics-grid">
+      velHTML=mSection('ll_vel','Velocidad de Cierre (Lead \u2192 LLC)',`<div class="metrics-grid">
         <div class="metric-card cyan"><div class="metric-label">Promedio</div><div class="metric-value">${avg}d</div></div>
         <div class="metric-card gold"><div class="metric-label">Mediana</div><div class="metric-value">${median}d</div></div>
         <div class="metric-card green"><div class="metric-label">M\u00e1s r\u00e1pido</div><div class="metric-value">${min}d</div></div>
         <div class="metric-card red"><div class="metric-label">M\u00e1s lento</div><div class="metric-value">${max}d</div></div>
-      </div>`;
+      </div>`);
     }
   }
 
   return `
-    <div class="metrics-row-title">Estado LLCs</div>
-    <div class="metrics-grid">
+    ${mSection('ll_estado','Estado LLCs',`<div class="metrics-grid">
       <div class="metric-card green"><div class="metric-label">Confirmadas</div><div class="metric-value">${confirmadas}</div></div>
       <div class="metric-card gold"><div class="metric-label">En Proceso</div><div class="metric-value">${enProceso}</div><div class="metric-sub">Filing + Apertura Activa</div></div>
       <div class="metric-card cyan"><div class="metric-label">Cuenta Bancaria OK</div><div class="metric-value">${bancaria}</div></div>
       <div class="metric-card"><div class="metric-label">Pagaron</div><div class="metric-value">${pagaron}</div></div>
       <div class="metric-card red"><div class="metric-label">Falta Pago</div><div class="metric-value">${sinPago}</div></div>
       <div class="metric-card purple"><div class="metric-label">Total LLCs</div><div class="metric-value">${rows.length}</div></div>
-    </div>
+    </div>`)}
     ${velHTML}`;
 }
 
@@ -457,18 +475,22 @@ function renderMetricsSeguimientos(rows){
   });
   const canalesNS=Object.entries(canalNS).filter(([,d])=>d.total>=2).sort((a,b)=>pct(b[1].noShow,b[1].total)-pct(a[1].noShow,a[1].total));
 
+  let nsHTML='';
+  if(canalesNS.length){
+    nsHTML=mSection('s_noshow','No-Show por Canal',`<div class="metrics-grid">
+      ${canalesNS.map(([c,d])=>{const p=pct(d.noShow,d.total);const cl=p>30?'red':p>15?'gold':'green';
+        return `<div class="metric-card ${cl}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${p}%</div><div class="metric-sub">${d.noShow} de ${d.total}</div></div>`}).join('')}
+    </div>`);
+  }
+
   return `
-    <div class="metrics-row-title">Seguimientos</div>
-    <div class="metrics-grid">
+    ${mSection('s_resumen','Seguimientos',`<div class="metrics-grid">
       <div class="metric-card green"><div class="metric-label">Presentados</div><div class="metric-value">${asistio}</div><div class="metric-sub">${tasaPres}% de ${agendados} agendados</div></div>
       <div class="metric-card gold"><div class="metric-label">Reagendados</div><div class="metric-value">${reagendados}</div></div>
       <div class="metric-card cyan"><div class="metric-label">SQL Calificados</div><div class="metric-value">${sqlTotal}</div></div>
       <div class="metric-card red"><div class="metric-label">No Asistieron</div><div class="metric-value">${noAsistio}</div><div class="metric-sub">Para retargeting</div></div>
-    </div>
-    ${canalesNS.length?`<div class="metrics-row-title">No-Show por Canal</div><div class="metrics-grid">
-      ${canalesNS.map(([c,d])=>{const p=pct(d.noShow,d.total);const cl=p>30?'red':p>15?'gold':'green';
-        return `<div class="metric-card ${cl}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${p}%</div><div class="metric-sub">${d.noShow} de ${d.total}</div></div>`}).join('')}
-    </div>`:''}`;
+    </div>`)}
+    ${nsHTML}`;
 }
 
 function updateMetrics(){
