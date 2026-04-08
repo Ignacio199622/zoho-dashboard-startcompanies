@@ -413,6 +413,29 @@ function renderMetricsLeads(rows, allLLCs, allSeguimientos){
     </div>`);
   }
 
+  // No-Show por Canal (en Leads, cruzando con seguimientos)
+  let nsLeadHTML='';
+  if(allSeguimientos){
+    const canalNSL={};
+    allSeguimientos.forEach(r=>{
+      if(!leadEmails.has(normEmail(r['Mail'])))return;
+      const c=r['Canal de Origen']||'Otro';
+      const m=(r['Estado del Meeting']||'').toLowerCase();
+      if(!m||m==='sin informaci\u00f3n')return;
+      if(isJunkCanal(c))return;
+      if(!canalNSL[c])canalNSL[c]={total:0,noShow:0};
+      canalNSL[c].total++;
+      if(m.includes('no asisti'))canalNSL[c].noShow++;
+    });
+    const cnsArr=Object.entries(canalNSL).filter(([,d])=>d.total>=2).sort((a,b)=>pct(b[1].noShow,b[1].total)-pct(a[1].noShow,a[1].total));
+    if(cnsArr.length){
+      nsLeadHTML=mSection('l_noshow','No-Show por Canal',`<div class="metrics-grid">
+        ${cnsArr.map(([c,d])=>{const p=pct(d.noShow,d.total);const cl=p>30?'red':p>15?'gold':'green';
+          return `<div class="metric-card ${cl}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${p}%</div><div class="metric-sub">${d.noShow} de ${d.total}</div></div>`}).join('')}
+      </div>`);
+    }
+  }
+
   return `
     ${mSection('l_resumen','Resumen',`<div class="metrics-grid">
       <div class="metric-card"><div class="metric-label">Total Leads</div><div class="metric-value">${total}</div></div>
@@ -436,6 +459,7 @@ function renderMetricsLeads(rows, allLLCs, allSeguimientos){
       <div class="metric-card purple"><div class="metric-label">LLC Abierta</div><div class="metric-value">${llcCount}</div><div class="metric-sub">${pct(llcCount,calif)}% de SQL</div></div>
     </div>`)}
     ${canalRentHTML}
+    ${nsLeadHTML}
     ${vendorHTML}`;
 }
 
@@ -477,6 +501,18 @@ function renderMetricsLLCs(rows, allLeads){
     }
   }
 
+  // Desglose por etapa
+  const etapaMap={};
+  rows.forEach(r=>{const e=r['Etapa']||'Sin etapa';etapaMap[e]=(etapaMap[e]||0)+1});
+  const etapas=Object.entries(etapaMap).sort((a,b)=>b[1]-a[1]);
+  const etapaColors={'confirmada':'green','filing':'blue','activa':'gold','cuenta bancaria':'cyan'};
+  function etapaColor(e){const l=e.toLowerCase();for(const[k,v]of Object.entries(etapaColors))if(l.includes(k))return v;return ''}
+
+  // LLCs por canal
+  const canalLLC={};
+  rows.forEach(r=>{const c=r['Canal de Origen']||'Otro';if(!isJunkCanal(c)){canalLLC[c]=(canalLLC[c]||0)+1}});
+  const canalesLLC=Object.entries(canalLLC).sort((a,b)=>b[1]-a[1]);
+
   return `
     ${mSection('ll_estado','Estado LLCs',`<div class="metrics-grid">
       <div class="metric-card purple"><div class="metric-label">Total LLCs</div><div class="metric-value">${rows.length}</div></div>
@@ -486,6 +522,12 @@ function renderMetricsLLCs(rows, allLeads){
       <div class="metric-card"><div class="metric-label">Pagaron</div><div class="metric-value">${pagaron}</div><div class="metric-sub">${pct(pagaron,rows.length)}% del total</div></div>
       <div class="metric-card red"><div class="metric-label">Falta Pago</div><div class="metric-value">${sinPago}</div><div class="metric-sub">${pct(sinPago,rows.length)}% del total</div></div>
     </div>`)}
+    ${mSection('ll_etapas','Desglose por Etapa',`<div class="metrics-grid">
+      ${etapas.map(([e,n])=>`<div class="metric-card ${etapaColor(e)}"><div class="metric-label">${esc(e)}</div><div class="metric-value">${n}</div><div class="metric-sub">${pct(n,rows.length)}% del total</div></div>`).join('')}
+    </div>`)}
+    ${canalesLLC.length?mSection('ll_canal','LLCs por Canal',`<div class="metrics-grid">
+      ${canalesLLC.map(([c,n])=>`<div class="metric-card"><div class="metric-label">${esc(c)}</div><div class="metric-value">${n}</div><div class="metric-sub">${pct(n,rows.length)}% del total</div></div>`).join('')}
+    </div>`):''}
     ${velHTML}`;
 }
 
