@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Start Companies — Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -41,9 +41,11 @@ a{color:var(--cyan);text-decoration:none}
 .logout-btn:hover{border-color:var(--text2);color:var(--text)}
 
 /* ===== LEMA ===== */
-.lema-bar{text-align:center;padding:10px 16px;background:linear-gradient(90deg,transparent,rgba(0,106,254,.08),transparent);animation:lemaIn 1.2s ease-out}
-.lema-text{font-size:14px;font-weight:500;color:var(--text2);letter-spacing:2px;text-transform:uppercase}
+.lema-bar{text-align:center;padding:14px 16px;background:linear-gradient(90deg,var(--dark),rgba(0,106,254,.12),var(--dark));border-bottom:1px solid var(--border);animation:lemaIn 1.2s ease-out;position:relative;overflow:hidden}
+.lema-bar::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),var(--gold),var(--cyan),transparent)}
+.lema-text{font-size:15px;font-weight:700;background:linear-gradient(90deg,var(--cyan),var(--gold),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:4px;text-transform:uppercase;animation:lemaShine 4s ease-in-out infinite}
 @keyframes lemaIn{0%{opacity:0;transform:translateY(-8px)}100%{opacity:1;transform:translateY(0)}}
+@keyframes lemaShine{0%,100%{filter:brightness(1)}50%{filter:brightness(1.3)}}
 
 /* ===== LAYOUT ===== */
 .container{max-width:1440px;margin:0 auto;padding:20px 32px}
@@ -112,8 +114,9 @@ th{padding:12px 16px;text-align:left;font-weight:600;color:var(--text2);text-tra
 td{padding:12px 16px;border-bottom:1px solid var(--border);white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}
 tr:hover td{background:rgba(0,106,254,.05)}
 tr:last-child td{border-bottom:none}
-tr.alert-row td{background:rgba(255,71,87,.06)}
-tr.alert-row td:first-child::before{content:'\26A0\FE0F ';font-size:12px}
+tr.alert-row td{background:rgba(201,162,39,.08);border-left:3px solid var(--gold)}
+tr.alert-row td:first-child{padding-left:12px}
+tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 
 /* ===== BADGES ===== */
 .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.3px}
@@ -535,13 +538,14 @@ function renderLeads(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
     <th>Fecha</th><th>Servicio</th><th>Nombre</th><th>Canal</th><th>Calificaci\u00f3n</th>
-    <th>Mail</th><th>Agend\u00f3?</th><th>Posibilidad</th><th>Modalidad</th><th>Vendedor</th>
+    <th>Tel\u00e9fono</th><th>Mail</th><th>Agend\u00f3?</th><th>Posibilidad</th><th>Modalidad</th><th>Vendedor</th>
   </tr></thead><tbody>${rows.map(r=>`<tr>
     <td>${esc(r['Fecha'])}</td>
     <td>${esc(r['Servicio'])}</td>
     <td><strong>${esc(r['Nombre y Apellido'])}</strong></td>
     <td>${esc(r['Canal'])}</td>
     <td>${calificacionBadge(r['Calificaci\u00f3n']||r['Calificacion'])}</td>
+    <td>${esc(r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'])}</td>
     <td>${esc(r['Mail'])}</td>
     <td>${r['\u00bfAgend\u00f3?']==='S\u00ed'?'<span class="badge badge-green">S\u00ed</span>':'<span class="badge badge-gray">'+esc(r['\u00bfAgend\u00f3?'])+'</span>'}</td>
     <td>${r['Posibilidad de cierre']==='S\u00ed'?'<span class="badge badge-green">S\u00ed</span>':'<span class="badge badge-gray">'+esc(r['Posibilidad de cierre'])+'</span>'}</td>
@@ -609,8 +613,8 @@ function switchTab(tab){
 function getExportData(){
   const rows=getFilteredRows();let headers,data;
   if(currentTab==='leads'){
-    headers=['Fecha','Servicio','Nombre','Canal','Calificacion','Mail','Agendo','Posibilidad','Modalidad','Vendedor'];
-    data=rows.map(r=>[r['Fecha'],r['Servicio'],r['Nombre y Apellido'],r['Canal'],r['Calificaci\u00f3n']||r['Calificacion'],r['Mail'],r['\u00bfAgend\u00f3?'],r['Posibilidad de cierre'],r['Modalidad de cierre'],r['Vendedor asignado']]);
+    headers=['Fecha','Servicio','Nombre','Canal','Calificacion','Telefono','Mail','Agendo','Posibilidad','Modalidad','Vendedor'];
+    data=rows.map(r=>[r['Fecha'],r['Servicio'],r['Nombre y Apellido'],r['Canal'],r['Calificaci\u00f3n']||r['Calificacion'],r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'],r['Mail'],r['\u00bfAgend\u00f3?'],r['Posibilidad de cierre'],r['Modalidad de cierre'],r['Vendedor asignado']]);
   }else if(currentTab==='llcs'){
     headers=['Fecha','LLC','Etapa','Nombre','Email','Telefono','Canal','Vendedor','Pago'];
     data=rows.map(r=>[r['Fecha'],r['LLC'],r['Etapa'],r['Nombre'],r['Email'],r['Tel\u00e9fono']||r['Telefono'],r['Canal de Origen'],r['Vendedor'],r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago']]);
@@ -631,6 +635,7 @@ function exportCSV(){
 }
 
 function exportPDF(){
+  if(!window.jspdf||!window.jspdf.jsPDF){showError('Cargando libreria PDF, intenta de nuevo en unos segundos...');return}
   const{jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   doc.setFillColor(0,22,39);doc.rect(0,0,297,25,'F');
@@ -655,6 +660,12 @@ async function fetchData(){
     const res=await fetch('/.netlify/functions/zoho-data');
     if(!res.ok)throw new Error('HTTP '+res.status);
     DATA=await res.json();if(DATA.error)throw new Error(DATA.error);
+    // Filter out TimelinesAI junk entries
+    DATA.leads=DATA.leads.filter(r=>{
+      const desc=(r['Descripci\u00f3n']||r['Descripcion']||'').toLowerCase();
+      const name=(r['Nombre y Apellido']||'').toLowerCase();
+      return !desc.includes('timelines') && !name.includes('new whatsapp contact');
+    });
     updateMetrics();buildFilters();renderTable();
     document.getElementById('lastUpdate').textContent='Actualizado: '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     document.getElementById('errorBanner').style.display='none';
