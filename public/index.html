@@ -290,58 +290,139 @@ const TITLES={leads:'Lead Totales y Flujos',llcs:'LLCs Apertura Mes Actual',segu
 function parseDate(str){if(!str)return null;const d=new Date(str);return isNaN(d)?null:d}
 function isToday(d){if(!d)return false;const t=new Date();return d.toDateString()===t.toDateString()}
 function isThisWeek(d){if(!d)return false;const now=new Date(),start=new Date(now);start.setDate(now.getDate()-now.getDay());start.setHours(0,0,0,0);return d>=start&&d<=now}
-function isThisMonth(d){if(!d)return false;const n=new Date();return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear()}
+
+// ===== MATCHING HELPERS =====
+function normEmail(e){return(e||'').trim().toLowerCase()}
+function pct(a,b){return b?Math.round(a/b*100):0}
 
 // ===== METRICS =====
-function renderMetricsLeads(rows){
-  const all=rows, thisMonth=all.filter(r=>isThisMonth(parseDate(r['Fecha'])));
-  const total=thisMonth.length;
-  const calif=thisMonth.filter(r=>(r['Calificaci\u00f3n']||r['Calificacion']||'').toLowerCase().includes('sql calificado')).length;
-  const noShow=thisMonth.filter(r=>(r['Calificaci\u00f3n']||r['Calificacion']||'').toLowerCase().includes('no show')).length;
-  const agendo=thisMonth.filter(r=>r['\u00bfAgend\u00f3?']==='S\u00ed').length;
-  const tasaAg=total?Math.round(agendo/total*100):0;
-  const today=all.filter(r=>isToday(parseDate(r['Fecha']))).length;
-  const week=all.filter(r=>isThisWeek(parseDate(r['Fecha']))).length;
+function renderMetricsLeads(rows, allLLCs, allSeguimientos){
+  const total=rows.length;
+  const calif=rows.filter(r=>(r['Calificaci\u00f3n']||r['Calificacion']||'').toLowerCase().includes('sql calificado')).length;
+  const noShow=rows.filter(r=>(r['Calificaci\u00f3n']||r['Calificacion']||'').toLowerCase().includes('no show')).length;
+  const agendo=rows.filter(r=>r['\u00bfAgend\u00f3?']==='S\u00ed').length;
+  const tasaAg=pct(agendo,total);
+  const today=rows.filter(r=>isToday(parseDate(r['Fecha']))).length;
+  const week=rows.filter(r=>isThisWeek(parseDate(r['Fecha']))).length;
 
   // By channel
   const channels={};
-  thisMonth.forEach(r=>{const c=r['Canal']||'Otro';channels[c]=(channels[c]||0)+1});
+  rows.forEach(r=>{const c=r['Canal']||'Otro';channels[c]=(channels[c]||0)+1});
   const organic=channels['Web Organic']||0;
   const meta=(channels['Meta Form']||0)+(channels['Facebook']||0);
   const landing=channels['Landing Page']||0;
   const wa=Object.entries(channels).filter(([k])=>k.toLowerCase().includes('whatsapp')).reduce((s,[,v])=>s+v,0);
-  const referidos=channels['Referidos']||channels['Marca Personal']||0;
+  const referidos=(channels['Referidos']||0)+(channels['Marca Personal']||0);
 
-  const metaAll=thisMonth.filter(r=>(r['Canal']||'').toLowerCase().includes('meta')||(r['Canal']||'').toLowerCase().includes('facebook'));
+  const metaAll=rows.filter(r=>{const c=(r['Canal']||'').toLowerCase();return c.includes('meta')||c.includes('facebook')});
   const metaAg=metaAll.filter(r=>r['\u00bfAgend\u00f3?']==='S\u00ed').length;
-  const metaPct=metaAll.length?Math.round(metaAg/metaAll.length*100):0;
+  const metaPct=pct(metaAg,metaAll.length);
+
+  // Funnel: Lead → Agendó → Asistió → SQL → LLC
+  const leadEmails=new Set(rows.map(r=>normEmail(r['Mail'])).filter(Boolean));
+  const asistioCount=allSeguimientos?allSeguimientos.filter(r=>{
+    const m=(r['Estado del Meeting']||'').toLowerCase();
+    return m.includes('asisti')&&!m.includes('no asisti')&&leadEmails.has(normEmail(r['Mail']));
+  }).length:0;
+  const llcCount=allLLCs?allLLCs.filter(r=>leadEmails.has(normEmail(r['Email']))).length:0;
+
+  // Rendimiento por vendedor (excluir Staff)
+  const vendorMap={};
+  rows.forEach(r=>{
+    const v=r['Vendedor asignado']||'';
+    if(v&&!v.includes('Start Companies Staff')){
+      if(!vendorMap[v])vendorMap[v]={total:0,agendo:0};
+      vendorMap[v].total++;
+      if(r['\u00bfAgend\u00f3?']==='S\u00ed')vendorMap[v].agendo++;
+    }
+  });
+  const vendors=Object.entries(vendorMap).filter(([,d])=>d.total>=2).sort((a,b)=>b[1].total-a[1].total);
+
+  // Canal más rentable (conversión a LLC)
+  let canalRentHTML='';
+  if(allLLCs){
+    const canalConv={};
+    rows.forEach(r=>{const c=r['Canal']||'Otro';if(!canalConv[c])canalConv[c]={leads:0,llcs:0};canalConv[c].leads++});
+    allLLCs.forEach(r=>{
+      const email=normEmail(r['Email']);if(!email)return;
+      const lead=rows.find(l=>normEmail(l['Mail'])===email);
+      if(lead){const c=lead['Canal']||'Otro';if(canalConv[c])canalConv[c].llcs++}
+    });
+    const canales=Object.entries(canalConv).filter(([,d])=>d.leads>=3).sort((a,b)=>pct(b[1].llcs,b[1].leads)-pct(a[1].llcs,a[1].leads));
+    if(canales.length){
+      canalRentHTML=`<div class="metrics-row-title">Conversi\u00f3n por Canal (Lead \u2192 LLC)</div><div class="metrics-grid">
+        ${canales.map(([c,d])=>`<div class="metric-card${pct(d.llcs,d.leads)>=20?' green':pct(d.llcs,d.leads)>=10?' cyan':' gold'}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${pct(d.llcs,d.leads)}%</div><div class="metric-sub">${d.llcs} LLCs de ${d.leads} leads</div></div>`).join('')}
+      </div>`;
+    }
+  }
 
   return `
-    <div class="metrics-row-title">Resumen del Mes</div>
+    <div class="metrics-row-title">Resumen</div>
     <div class="metrics-grid">
-      <div class="metric-card"><div class="metric-label">Total Leads (Mes)</div><div class="metric-value">${total}</div></div>
+      <div class="metric-card"><div class="metric-label">Total Leads</div><div class="metric-value">${total}</div></div>
       <div class="metric-card green"><div class="metric-label">SQL Calificados</div><div class="metric-value">${calif}</div></div>
       <div class="metric-card red"><div class="metric-label">No Show</div><div class="metric-value">${noShow}</div></div>
       <div class="metric-card cyan"><div class="metric-label">Tasa Agendamiento</div><div class="metric-value">${tasaAg}%</div><div class="metric-sub">${agendo} de ${total} agendaron</div></div>
-      <div class="metric-card gold"><div class="metric-label">Hoy / Semana / Mes</div><div class="metric-value">${today}</div><div class="metric-sub">${week} semana · ${total} mes</div></div>
+      <div class="metric-card gold"><div class="metric-label">Hoy / Semana / Total</div><div class="metric-value">${today}</div><div class="metric-sub">${week} semana \u00b7 ${total} total</div></div>
     </div>
-    <div class="metrics-row-title">Leads por Canal (Mes)</div>
+    <div class="metrics-row-title">Leads por Canal</div>
     <div class="metrics-grid">
       <div class="metric-card"><div class="metric-label">Org\u00e1nico</div><div class="metric-value">${organic}</div></div>
       <div class="metric-card purple"><div class="metric-label">Meta Form</div><div class="metric-value">${meta}</div><div class="metric-sub">${metaAg} agendaron (${metaPct}%)</div></div>
       <div class="metric-card cyan"><div class="metric-label">Landing Page</div><div class="metric-value">${landing}</div></div>
       <div class="metric-card green"><div class="metric-label">WhatsApp</div><div class="metric-value">${wa}</div></div>
       <div class="metric-card gold"><div class="metric-label">Referidos</div><div class="metric-value">${referidos}</div></div>
-    </div>`;
+    </div>
+    <div class="metrics-row-title">Funnel Completo</div>
+    <div class="metrics-grid">
+      <div class="metric-card"><div class="metric-label">Leads</div><div class="metric-value">${total}</div></div>
+      <div class="metric-card cyan"><div class="metric-label">Agendaron</div><div class="metric-value">${agendo}</div><div class="metric-sub">${tasaAg}% de leads</div></div>
+      <div class="metric-card green"><div class="metric-label">Asistieron</div><div class="metric-value">${asistioCount}</div><div class="metric-sub">${pct(asistioCount,agendo)}% de agendados</div></div>
+      <div class="metric-card gold"><div class="metric-label">SQL Calificado</div><div class="metric-value">${calif}</div><div class="metric-sub">${pct(calif,asistioCount)}% de asistidos</div></div>
+      <div class="metric-card purple"><div class="metric-label">LLC Abierta</div><div class="metric-value">${llcCount}</div><div class="metric-sub">${pct(llcCount,calif)}% de SQL</div></div>
+    </div>
+    ${canalRentHTML}
+    ${vendors.length?`<div class="metrics-row-title">Rendimiento por Vendedor</div><div class="metrics-grid">
+      ${vendors.map(([v,d])=>`<div class="metric-card"><div class="metric-label">${esc(v)}</div><div class="metric-value">${d.total}</div><div class="metric-sub">${pct(d.agendo,d.total)}% agendaron</div></div>`).join('')}
+    </div>`:''}`;
 }
 
-function renderMetricsLLCs(rows){
-  const thisMonth=rows.filter(r=>isThisMonth(parseDate(r['Fecha'])));
+function renderMetricsLLCs(rows, allLeads){
   const confirmadas=rows.filter(r=>(r['Etapa']||'').toLowerCase().includes('confirmada')).length;
   const enProceso=rows.filter(r=>{const e=(r['Etapa']||'').toLowerCase();return e.includes('filing')||e.includes('activa')}).length;
   const bancaria=rows.filter(r=>(r['Etapa']||'').toLowerCase().includes('cuenta bancaria confirmada')).length;
   const pagaron=rows.filter(r=>{const p=(r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago']||'').toLowerCase();return p&&p!=='sin pago'}).length;
   const sinPago=rows.filter(r=>{const p=(r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago']||'').toLowerCase();return !p||p==='sin pago'}).length;
+
+  // Velocidad de cierre
+  let velHTML='';
+  if(allLeads){
+    const days=[];
+    rows.forEach(r=>{
+      const llcDate=parseDate(r['Fecha']);
+      const email=normEmail(r['Email']);
+      if(!email||!llcDate)return;
+      const lead=allLeads.find(l=>normEmail(l['Mail'])===email);
+      if(!lead)return;
+      const leadDate=parseDate(lead['Fecha']);
+      if(!leadDate)return;
+      const diff=Math.round((llcDate-leadDate)/(1000*60*60*24));
+      if(diff>=0)days.push(diff);
+    });
+    if(days.length){
+      days.sort((a,b)=>a-b);
+      const avg=Math.round(days.reduce((s,d)=>s+d,0)/days.length);
+      const median=days[Math.floor(days.length/2)];
+      const min=days[0];
+      const max=days[days.length-1];
+      velHTML=`<div class="metrics-row-title">Velocidad de Cierre (Lead \u2192 LLC)</div><div class="metrics-grid">
+        <div class="metric-card cyan"><div class="metric-label">Promedio</div><div class="metric-value">${avg}d</div></div>
+        <div class="metric-card gold"><div class="metric-label">Mediana</div><div class="metric-value">${median}d</div></div>
+        <div class="metric-card green"><div class="metric-label">M\u00e1s r\u00e1pido</div><div class="metric-value">${min}d</div></div>
+        <div class="metric-card red"><div class="metric-label">M\u00e1s lento</div><div class="metric-value">${max}d</div></div>
+      </div>`;
+    }
+  }
 
   return `
     <div class="metrics-row-title">Estado LLCs</div>
@@ -351,34 +432,51 @@ function renderMetricsLLCs(rows){
       <div class="metric-card cyan"><div class="metric-label">Cuenta Bancaria OK</div><div class="metric-value">${bancaria}</div></div>
       <div class="metric-card"><div class="metric-label">Pagaron</div><div class="metric-value">${pagaron}</div></div>
       <div class="metric-card red"><div class="metric-label">Falta Pago</div><div class="metric-value">${sinPago}</div></div>
-      <div class="metric-card purple"><div class="metric-label">Total Mes Actual</div><div class="metric-value">${thisMonth.length}</div></div>
-    </div>`;
+      <div class="metric-card purple"><div class="metric-label">Total LLCs</div><div class="metric-value">${rows.length}</div></div>
+    </div>
+    ${velHTML}`;
 }
 
 function renderMetricsSeguimientos(rows){
   const agendados=rows.filter(r=>(r['Estado del Meeting']||'')&&(r['Estado del Meeting']||'').toLowerCase()!=='sin informaci\u00f3n').length;
-  const asistio=rows.filter(r=>(r['Estado del Meeting']||'').toLowerCase().includes('asisti')&&!(r['Estado del Meeting']||'').toLowerCase().includes('no asisti')).length;
-  const tasaPres=agendados?Math.round(asistio/agendados*100):0;
+  const asistio=rows.filter(r=>{const m=(r['Estado del Meeting']||'').toLowerCase();return m.includes('asisti')&&!m.includes('no asisti')}).length;
+  const tasaPres=pct(asistio,agendados);
   const reagendados=rows.filter(r=>(r['Estado del Meeting']||'').toLowerCase().includes('reagend')).length;
-  const sqlWeek=rows.filter(r=>(r['Estatus del Lead']||'').toLowerCase().includes('sql calificado')&&isThisWeek(parseDate(r['Fecha \u00faltimo meeting']||r['Fecha ultimo meeting']))).length;
+  const sqlTotal=rows.filter(r=>(r['Estatus del Lead']||'').toLowerCase().includes('sql calificado')).length;
   const noAsistio=rows.filter(r=>(r['Estado del Meeting']||'').toLowerCase().includes('no asisti')).length;
+
+  // No-show por canal
+  const canalNS={};
+  rows.forEach(r=>{
+    const c=r['Canal de Origen']||'Otro';
+    const m=(r['Estado del Meeting']||'').toLowerCase();
+    if(!m||m==='sin informaci\u00f3n')return;
+    if(!canalNS[c])canalNS[c]={total:0,noShow:0};
+    canalNS[c].total++;
+    if(m.includes('no asisti'))canalNS[c].noShow++;
+  });
+  const canalesNS=Object.entries(canalNS).filter(([,d])=>d.total>=2).sort((a,b)=>pct(b[1].noShow,b[1].total)-pct(a[1].noShow,a[1].total));
 
   return `
     <div class="metrics-row-title">Seguimientos</div>
     <div class="metrics-grid">
       <div class="metric-card green"><div class="metric-label">Presentados</div><div class="metric-value">${asistio}</div><div class="metric-sub">${tasaPres}% de ${agendados} agendados</div></div>
       <div class="metric-card gold"><div class="metric-label">Reagendados</div><div class="metric-value">${reagendados}</div></div>
-      <div class="metric-card cyan"><div class="metric-label">SQL Calificados (Semana)</div><div class="metric-value">${sqlWeek}</div></div>
+      <div class="metric-card cyan"><div class="metric-label">SQL Calificados</div><div class="metric-value">${sqlTotal}</div></div>
       <div class="metric-card red"><div class="metric-label">No Asistieron</div><div class="metric-value">${noAsistio}</div><div class="metric-sub">Para retargeting</div></div>
-    </div>`;
+    </div>
+    ${canalesNS.length?`<div class="metrics-row-title">No-Show por Canal</div><div class="metrics-grid">
+      ${canalesNS.map(([c,d])=>{const p=pct(d.noShow,d.total);const cl=p>30?'red':p>15?'gold':'green';
+        return `<div class="metric-card ${cl}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${p}%</div><div class="metric-sub">${d.noShow} de ${d.total}</div></div>`}).join('')}
+    </div>`:''}`;
 }
 
 function updateMetrics(){
   if(!DATA)return;
   const el=document.getElementById('metricsSection');
   const rows=getFilteredRows();
-  if(currentTab==='leads') el.innerHTML=renderMetricsLeads(rows);
-  else if(currentTab==='llcs') el.innerHTML=renderMetricsLLCs(rows);
+  if(currentTab==='leads') el.innerHTML=renderMetricsLeads(rows,DATA.llcs,DATA.seguimientos);
+  else if(currentTab==='llcs') el.innerHTML=renderMetricsLLCs(rows,DATA.leads);
   else el.innerHTML=renderMetricsSeguimientos(rows);
 }
 
@@ -667,7 +765,9 @@ async function fetchData(){
       return !desc.includes('timelines') && !name.includes('new whatsapp contact');
     });
     updateMetrics();buildFilters();renderTable();
-    document.getElementById('lastUpdate').textContent='Actualizado: '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const cacheStatus=res.headers.get('X-Cache');
+    const cacheLabel=cacheStatus==='HIT'?' (cache)':cacheStatus==='STALE'?' (cache anterior)':'';
+    document.getElementById('lastUpdate').textContent='Actualizado: '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+cacheLabel;
     document.getElementById('errorBanner').style.display='none';
   }catch(err){showError('Error al cargar datos: '+err.message)}
   finally{if(btn)btn.disabled=false}

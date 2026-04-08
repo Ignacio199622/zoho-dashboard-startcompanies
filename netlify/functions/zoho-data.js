@@ -115,6 +115,10 @@ async function exportView(token, viewId) {
   throw new Error('Export job timed out');
 }
 
+let cache = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -127,6 +131,11 @@ exports.handler = async (event) => {
   }
 
   try {
+    // Return cached data if still fresh
+    if (cache && (Date.now() - cacheTimestamp) < CACHE_TTL) {
+      return { statusCode: 200, headers: { ...headers, 'X-Cache': 'HIT' }, body: cache };
+    }
+
     const token = await getAccessToken();
 
     const [leads, llcs, seguimientos] = await Promise.all([
@@ -135,17 +144,22 @@ exports.handler = async (event) => {
       exportView(token, '3030785000001401002')
     ]);
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        timestamp: new Date().toISOString(),
-        leads,
-        llcs,
-        seguimientos
-      })
-    };
+    const body = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      leads,
+      llcs,
+      seguimientos
+    });
+
+    cache = body;
+    cacheTimestamp = Date.now();
+
+    return { statusCode: 200, headers: { ...headers, 'X-Cache': 'MISS' }, body };
   } catch (err) {
+    // On error, return stale cache if available
+    if (cache) {
+      return { statusCode: 200, headers: { ...headers, 'X-Cache': 'STALE' }, body: cache };
+    }
     return {
       statusCode: 500,
       headers,
