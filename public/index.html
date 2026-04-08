@@ -123,6 +123,22 @@ tr.alert-row td{background:rgba(201,162,39,.08);border-left:3px solid var(--gold
 tr.alert-row td:first-child{padding-left:12px}
 tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 
+/* ===== NOTES ===== */
+.note-btn{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.4;transition:opacity .2s}
+.note-btn:hover{opacity:1}
+.note-btn.has-note{opacity:.9;filter:drop-shadow(0 0 3px var(--gold))}
+.note-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center}
+.note-modal-overlay.show{display:flex}
+.note-modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:480px;animation:lemaIn .2s ease-out}
+.note-modal h3{font-size:15px;margin-bottom:4px}
+.note-modal .note-who{font-size:12px;color:var(--text2);margin-bottom:12px}
+.note-modal textarea{width:100%;min-height:100px;padding:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:inherit;font-size:14px;resize:vertical;outline:none}
+.note-modal textarea:focus{border-color:var(--blue)}
+.note-modal-actions{display:flex;gap:8px;margin-top:12px;justify-content:flex-end}
+.note-modal-actions button{padding:8px 20px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:none}
+.note-save{background:var(--blue);color:#fff}
+.note-cancel{background:var(--surface2);color:var(--text2);border:1px solid var(--border) !important}
+
 /* ===== BADGES ===== */
 .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.3px}
 .badge-blue{background:rgba(0,106,254,.15);color:#4d9aff}
@@ -244,6 +260,19 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
       </div>
       <div class="table-scroll" id="tableContent">
         <div class="loading"><div class="spinner"></div><div class="loading-text">Conectando con Zoho Analytics...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Note Modal -->
+  <div class="note-modal-overlay" id="noteOverlay" onclick="if(event.target===this)closeNote()">
+    <div class="note-modal">
+      <h3 id="noteTitle"></h3>
+      <div class="note-who" id="noteWho"></div>
+      <textarea id="noteText" placeholder="Escribi una nota..."></textarea>
+      <div class="note-modal-actions">
+        <button class="note-cancel" onclick="closeNote()">Cancelar</button>
+        <button class="note-save" onclick="saveNote()">Guardar</button>
       </div>
     </div>
   </div>
@@ -662,9 +691,10 @@ function getFilteredRows(){
 function renderLeads(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
-    <th>Fecha</th><th>Servicio</th><th>Nombre</th><th>Canal</th><th>Calificaci\u00f3n</th>
+    <th></th><th>Fecha</th><th>Servicio</th><th>Nombre</th><th>Canal</th><th>Calificaci\u00f3n</th>
     <th>Tel\u00e9fono</th><th>Mail</th><th>Agend\u00f3?</th><th>Posibilidad</th><th>Modalidad</th><th>Vendedor</th>
-  </tr></thead><tbody>${rows.map(r=>`<tr>
+  </tr></thead><tbody>${rows.map(r=>{const nk='lead_'+(normEmail(r['Mail'])||esc(r['Nombre y Apellido']));return `<tr>
+    <td>${noteBtn(nk,r['Nombre y Apellido']||'Lead')}</td>
     <td>${esc(r['Fecha'])}</td>
     <td>${esc(r['Servicio'])}</td>
     <td><strong>${esc(r['Nombre y Apellido'])}</strong></td>
@@ -676,15 +706,16 @@ function renderLeads(rows){
     <td>${r['Posibilidad de cierre']==='S\u00ed'?'<span class="badge badge-green">S\u00ed</span>':'<span class="badge badge-gray">'+esc(r['Posibilidad de cierre'])+'</span>'}</td>
     <td>${esc(r['Modalidad de cierre'])}</td>
     <td>${esc(r['Vendedor asignado'])}</td>
-  </tr>`).join('')}</tbody></table>`;
+  </tr>`}).join('')}</tbody></table>`;
 }
 
 function renderLLCs(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
-    <th>Fecha</th><th>LLC</th><th>Etapa</th><th>Nombre</th><th>Email</th>
+    <th></th><th>Fecha</th><th>LLC</th><th>Etapa</th><th>Nombre</th><th>Email</th>
     <th>Tel\u00e9fono</th><th>Canal</th><th>Vendedor</th><th>Pago</th>
-  </tr></thead><tbody>${rows.map(r=>`<tr>
+  </tr></thead><tbody>${rows.map(r=>{const nk='llc_'+(normEmail(r['Email'])||esc(r['LLC']));return `<tr>
+    <td>${noteBtn(nk,r['LLC']||'LLC')}</td>
     <td>${esc(r['Fecha'])}</td>
     <td><strong>${esc(r['LLC'])}</strong></td>
     <td>${etapaBadge(r['Etapa'])}</td>
@@ -694,17 +725,19 @@ function renderLLCs(rows){
     <td>${esc(r['Canal de Origen'])}</td>
     <td>${esc(r['Vendedor'])}</td>
     <td>${pagoBadge(r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago'])}</td>
-  </tr>`).join('')}</tbody></table>`;
+  </tr>`}).join('')}</tbody></table>`;
 }
 
 function renderSeguimientos(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
-    <th>Fecha</th><th>Nombre</th><th>Mail</th><th>Estatus</th>
+    <th></th><th>Fecha</th><th>Nombre</th><th>Mail</th><th>Estatus</th>
     <th>Vendedor</th><th>Canal</th><th>Meeting</th><th>Descripci\u00f3n</th>
   </tr></thead><tbody>${rows.map(r=>{
     const isSQL=(r['Estatus del Lead']||'').toLowerCase().includes('sql calificado');
+    const nk='seg_'+(normEmail(r['Mail'])||(esc(r['Nombre'])+esc(r['Apellido'])));
     return `<tr class="${isSQL?'alert-row':''}">
+    <td>${noteBtn(nk,(r['Nombre']||'')+' '+(r['Apellido']||''))}</td>
     <td>${esc(r['Fecha \u00faltimo meeting']||r['Fecha ultimo meeting'])}</td>
     <td><strong>${esc(r['Nombre'])} ${esc(r['Apellido'])}</strong></td>
     <td>${esc(r['Mail'])}</td>
@@ -791,6 +824,7 @@ async function fetchData(){
       const name=(r['Nombre y Apellido']||'').toLowerCase();
       return !desc.includes('timelines') && !name.includes('new whatsapp contact');
     });
+    await loadNotes();
     updateMetrics();buildFilters();renderTable();
     const cacheStatus=res.headers.get('X-Cache');
     const cacheLabel=cacheStatus==='HIT'?' (cache)':cacheStatus==='STALE'?' (cache anterior)':'';
@@ -801,6 +835,48 @@ async function fetchData(){
 }
 
 function manualRefresh(){fetchData()}
+
+// ===== NOTES =====
+let NOTES={};
+let currentNoteKey='';
+
+async function loadNotes(){
+  try{const r=await fetch('/.netlify/functions/notes');if(r.ok)NOTES=await r.json()}catch(e){}
+}
+
+function noteBtn(key,label){
+  const has=NOTES[key];
+  const tip=has?has.text.substring(0,40)+'...':'Agregar nota';
+  return `<button class="note-btn${has?' has-note':''}" onclick="openNote('${esc(key)}','${esc(label)}')" title="${esc(tip)}">${has?'\u270F\uFE0F':'\u270F\uFE0F'}</button>`;
+}
+
+function openNote(key,label){
+  currentNoteKey=key;
+  document.getElementById('noteTitle').textContent=label;
+  const note=NOTES[key];
+  document.getElementById('noteText').value=note?note.text:'';
+  document.getElementById('noteWho').textContent=note?`Editado por ${note.user} - ${new Date(note.updatedAt).toLocaleString('es-AR')}`:'';
+  document.getElementById('noteOverlay').classList.add('show');
+  document.getElementById('noteText').focus();
+}
+
+function closeNote(){document.getElementById('noteOverlay').classList.remove('show');currentNoteKey=''}
+
+async function saveNote(){
+  const text=document.getElementById('noteText').value;
+  const user=sessionStorage.getItem('sc_user')||localStorage.getItem('sc_user');
+  let userName='';
+  try{userName=JSON.parse(user).user||user}catch(e){userName=user}
+  try{
+    const r=await fetch('/.netlify/functions/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:currentNoteKey,text,user:userName})});
+    if(r.ok){
+      if(!text.trim()){delete NOTES[currentNoteKey]}
+      else{NOTES[currentNoteKey]=await r.json()}
+      renderTable();
+    }
+  }catch(e){showError('Error guardando nota: '+e.message)}
+  closeNote();
+}
 </script>
 </body>
 </html>
