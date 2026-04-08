@@ -745,7 +745,7 @@ function renderSeguimientos(rows){
     <td>${esc(r['Vendedor'])}</td>
     <td>${esc(r['Canal de Origen'])}</td>
     <td>${meetingBadge(r['Estado del Meeting'])}</td>
-    <td title="${esc(r['Descripci\u00f3n']||r['Descripcion'])}">${esc((r['Descripci\u00f3n']||r['Descripcion']||'').substring(0,60))}</td>
+    <td style="white-space:normal;max-width:300px" title="${esc(r['Descripci\u00f3n']||r['Descripcion'])}">${esc(r['Descripci\u00f3n']||r['Descripcion']||'')}</td>
   </tr>`}).join('')}</tbody></table>`;
 }
 
