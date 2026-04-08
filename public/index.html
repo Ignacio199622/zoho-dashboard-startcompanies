@@ -398,7 +398,7 @@ function renderMetricsLeads(rows, allLLCs, allSeguimientos){
       const lead=rows.find(l=>normEmail(l['Mail'])===email);
       if(lead){const c=lead['Canal']||'Otro';if(canalConv[c])canalConv[c].llcs++}
     });
-    const canales=Object.entries(canalConv).filter(([c,d])=>d.leads>=3&&!isJunkCanal(c)).sort((a,b)=>pct(b[1].llcs,b[1].leads)-pct(a[1].llcs,a[1].leads));
+    const canales=Object.entries(canalConv).filter(([c,d])=>d.leads>=3&&!isJunkCanal(c)&&d.llcs>0).sort((a,b)=>pct(b[1].llcs,b[1].leads)-pct(a[1].llcs,a[1].leads));
     if(canales.length){
       canalRentHTML=mSection('l_conv','Conversi\u00f3n por Canal (Lead \u2192 LLC)',`<div class="metrics-grid">
         ${canales.map(([c,d])=>`<div class="metric-card${pct(d.llcs,d.leads)>=20?' green':pct(d.llcs,d.leads)>=10?' cyan':' gold'}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${pct(d.llcs,d.leads)}%</div><div class="metric-sub">${d.llcs} LLCs de ${d.leads} leads</div></div>`).join('')}
@@ -479,12 +479,12 @@ function renderMetricsLLCs(rows, allLeads){
 
   return `
     ${mSection('ll_estado','Estado LLCs',`<div class="metrics-grid">
-      <div class="metric-card green"><div class="metric-label">Confirmadas</div><div class="metric-value">${confirmadas}</div></div>
-      <div class="metric-card gold"><div class="metric-label">En Proceso</div><div class="metric-value">${enProceso}</div><div class="metric-sub">Filing + Apertura Activa</div></div>
-      <div class="metric-card cyan"><div class="metric-label">Cuenta Bancaria OK</div><div class="metric-value">${bancaria}</div></div>
-      <div class="metric-card"><div class="metric-label">Pagaron</div><div class="metric-value">${pagaron}</div></div>
-      <div class="metric-card red"><div class="metric-label">Falta Pago</div><div class="metric-value">${sinPago}</div></div>
       <div class="metric-card purple"><div class="metric-label">Total LLCs</div><div class="metric-value">${rows.length}</div></div>
+      <div class="metric-card green"><div class="metric-label">Confirmadas</div><div class="metric-value">${confirmadas}</div><div class="metric-sub">${pct(confirmadas,rows.length)}% del total</div></div>
+      <div class="metric-card gold"><div class="metric-label">En Proceso</div><div class="metric-value">${enProceso}</div><div class="metric-sub">${pct(enProceso,rows.length)}% · Filing + Activa</div></div>
+      <div class="metric-card cyan"><div class="metric-label">Cuenta Bancaria OK</div><div class="metric-value">${bancaria}</div><div class="metric-sub">${pct(bancaria,rows.length)}% del total</div></div>
+      <div class="metric-card"><div class="metric-label">Pagaron</div><div class="metric-value">${pagaron}</div><div class="metric-sub">${pct(pagaron,rows.length)}% del total</div></div>
+      <div class="metric-card red"><div class="metric-label">Falta Pago</div><div class="metric-value">${sinPago}</div><div class="metric-sub">${pct(sinPago,rows.length)}% del total</div></div>
     </div>`)}
     ${velHTML}`;
 }
