@@ -954,8 +954,10 @@ async function fetchData(){
     const cacheLabel=cacheStatus==='HIT'?' (cache)':cacheStatus==='STALE'?' (cache anterior)':'';
     let ventana='';
     if(DATA.leadsSince){
+      // leadsSince is built in the function's timezone (UTC on Netlify); read it
+      // back in UTC or a AR browser shows the previous month.
       const s=new Date(DATA.leadsSince);
-      ventana=' · leads desde '+MES_CORTO[s.getMonth()]+' '+s.getFullYear();
+      ventana=' · leads desde '+MES_CORTO[s.getUTCMonth()]+' '+s.getUTCFullYear();
     }
     document.getElementById('lastUpdate').textContent='Actualizado: '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+cacheLabel+ventana;
     document.getElementById('errorBanner').style.display='none';
