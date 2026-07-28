@@ -257,13 +257,19 @@ function deriveModalidad(lead, agendo) {
 // Start of the leads window: first day of the month N months back (N = 6 by
 // default, i.e. current month + 5 previous). Override with ZOHO_LEADS_MONTHS=N
 // or, for an exact date, ZOHO_LEADS_SINCE=YYYY-MM-DD.
+//
+// The boundary is pinned to 00:00 Argentina (UTC-3, no DST) instead of the
+// server's timezone: Netlify runs in UTC, so a plain local-month start let the
+// last 3 hours of the previous month in and the dashboard grew a bogus extra
+// month with a handful of leads in it.
+const AR_OFFSET_MS = 3 * 60 * 60 * 1000;
 function leadsWindowStart() {
   if (process.env.ZOHO_LEADS_SINCE) {
     return new Date(process.env.ZOHO_LEADS_SINCE + 'T00:00:00-03:00');
   }
   const months = Math.max(1, parseInt(process.env.ZOHO_LEADS_MONTHS, 10) || 6);
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth() - (months - 1), 1, 0, 0, 0);
+  const nowAR = new Date(Date.now() - AR_OFFSET_MS);  // UTC getters now read the AR calendar
+  return new Date(Date.UTC(nowAR.getUTCFullYear(), nowAR.getUTCMonth() - (months - 1), 1, 3, 0, 0));
 }
 
 // Build the `leads` dataset from CRM, restricted to the relevant recent window.

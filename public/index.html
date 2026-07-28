@@ -362,7 +362,15 @@ function renderComparativaMensual(allLeads){
     if(c.includes('sql calificado'))e.sql++;
     if(c.includes('no show'))e.noShow++;
   });
-  const keys=Object.keys(map).sort();
+  // Only months fully inside the window are comparable: anything before it (or a
+  // partial first month, if the window starts mid-month) would show a fake drop.
+  let keys=Object.keys(map).sort();
+  if(DATA&&DATA.leadsSince){
+    const s=new Date(DATA.leadsSince);
+    let first=s.getUTCFullYear()+'-'+String(s.getUTCMonth()+1).padStart(2,'0');
+    if(s.getUTCDate()!==1){const n=new Date(Date.UTC(s.getUTCFullYear(),s.getUTCMonth()+1,1));first=n.getUTCFullYear()+'-'+String(n.getUTCMonth()+1).padStart(2,'0')}
+    keys=keys.filter(k=>k>=first);
+  }
   if(keys.length<2)return'';
   const cards=keys.map((k,i)=>{
     const d=map[k],prev=i>0?map[keys[i-1]]:null;
