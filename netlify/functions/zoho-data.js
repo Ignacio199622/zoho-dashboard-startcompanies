@@ -101,29 +101,45 @@ function crmGet(token, path) {
   });
 }
 
-// Paginate a module sorted by Created_Time desc, stopping as soon as records
-// fall before `since`. This keeps us to a few pages (current window) instead of
-// pulling the whole module — important to stay under the Netlify function timeout.
-async function crmGetSince(token, module, fields, since, maxPages = 60) {
-  const out = [];
-  let page = 1;
-  while (page <= maxPages) {
-    const path = `${module}?fields=${encodeURIComponent(fields)}&per_page=200&page=${page}&sort_by=Created_Time&sort_order=desc`;
+// Fetch one page of a module sorted by Created_Time desc, retrying on rate limit.
+async function crmGetPage(token, module, fields, page) {
+  const path = `${module}?fields=${encodeURIComponent(fields)}&per_page=200&page=${page}&sort_by=Created_Time&sort_order=desc`;
+  for (let attempt = 0; attempt < 4; attempt++) {
     const r = await crmGet(token, path);
     // rate limited -> back off and retry the same page
     if (r.statusCode === 429 || (r.json && r.json.code === 'TOO_MANY_REQUESTS')) {
-      await new Promise(res => setTimeout(res, 3000));
+      await new Promise(res => setTimeout(res, 1500 * (attempt + 1)));
       continue;
     }
-    if (r.statusCode === 204 || !r.json || !r.json.data) break;
-    let reachedOld = false;
-    for (const rec of r.json.data) {
-      if (rec.Created_Time && new Date(rec.Created_Time) < since) { reachedOld = true; break; }
-      out.push(rec);
+    if (r.statusCode === 204 || !r.json || !r.json.data) return null;
+    return r.json;
+  }
+  return null;
+}
+
+// Paginate a module sorted by Created_Time desc, stopping as soon as records
+// fall before `since`. Pages are fetched in small parallel batches: sequential
+// paging costs ~25s for a 12-month window (over the Netlify function timeout),
+// batching brings the same window down to ~7s. The cost is up to batchSize-1
+// wasted pages past the cutoff, which is cheap compared to the latency saved.
+async function crmGetSince(token, module, fields, since, maxPages = 80, batchSize = 4) {
+  const out = [];
+  let page = 1;
+  let done = false;
+  while (page <= maxPages && !done) {
+    const nums = [];
+    for (let i = 0; i < batchSize && page + i <= maxPages; i++) nums.push(page + i);
+    const pages = await Promise.all(nums.map(p => crmGetPage(token, module, fields, p)));
+    for (const json of pages) {
+      if (!json) { done = true; break; }
+      let reachedOld = false;
+      for (const rec of json.data) {
+        if (rec.Created_Time && new Date(rec.Created_Time) < since) { reachedOld = true; break; }
+        out.push(rec);
+      }
+      if (reachedOld || !json.info || !json.info.more_records) { done = true; break; }
     }
-    if (reachedOld) break;
-    if (!r.json.info || !r.json.info.more_records) break;
-    page++;
+    page += batchSize;
   }
   return out;
 }
@@ -238,9 +254,21 @@ function deriveModalidad(lead, agendo) {
   return agendo === 'No' ? 'Formulario Directo' : 'Cierre en Llamada';
 }
 
+// Start of the leads window: first day of the month N months back (N = 6 by
+// default, i.e. current month + 5 previous). Override with ZOHO_LEADS_MONTHS=N
+// or, for an exact date, ZOHO_LEADS_SINCE=YYYY-MM-DD.
+function leadsWindowStart() {
+  if (process.env.ZOHO_LEADS_SINCE) {
+    return new Date(process.env.ZOHO_LEADS_SINCE + 'T00:00:00-03:00');
+  }
+  const months = Math.max(1, parseInt(process.env.ZOHO_LEADS_MONTHS, 10) || 6);
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth() - (months - 1), 1, 0, 0, 0);
+}
+
 // Build the `leads` dataset from CRM, restricted to the relevant recent window.
-// Window default = current calendar month (this is what the deleted Analytics
-// view did). Override with ZOHO_LEADS_SINCE=YYYY-MM-DD to widen the window.
+// The deleted Analytics view only carried the current month; we pull several
+// months so the dashboard can compare periods month over month.
 async function buildLeads(token) {
   const leadFields = [
     'First_Name', 'Last_Name', 'Full_Name', 'Email', 'Phone', 'Mobile',
@@ -249,15 +277,7 @@ async function buildLeads(token) {
   ].join(',');
   const eventFields = ['Who_Id', 'What_Id', 'Start_DateTime', 'Status_del_Meet', 'Created_Time'].join(',');
 
-  // Determine the window start (default = first day of current month; the deleted
-  // Analytics view behaved this way). Override with ZOHO_LEADS_SINCE=YYYY-MM-DD.
-  let since;
-  if (process.env.ZOHO_LEADS_SINCE) {
-    since = new Date(process.env.ZOHO_LEADS_SINCE + 'T00:00:00-03:00');
-  } else {
-    const now = new Date();
-    since = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0); // first day of current month
-  }
+  const since = leadsWindowStart();
 
   // Events for in-window leads are created on/after the lead, so fetching events
   // back to the same window covers them (with a small safety margin).
@@ -337,6 +357,7 @@ exports.handler = async (event) => {
 
     const body = JSON.stringify({
       timestamp: new Date().toISOString(),
+      leadsSince: leadsWindowStart().toISOString(),  // start of the leads window (for the UI)
       leads,
       llcs,
       seguimientos

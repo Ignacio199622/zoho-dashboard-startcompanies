@@ -346,6 +346,41 @@ function toggleSection(id){
 }
 
 // ===== METRICS =====
+// Month-over-month view. Always computed over the FULL leads dataset (not the
+// active period filter), so it stays comparable no matter what is selected.
+const MES_CORTO=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+function renderComparativaMensual(allLeads){
+  if(!allLeads||!allLeads.length)return'';
+  const map={};
+  allLeads.forEach(r=>{
+    const d=parseDate(r['Fecha']);if(!d)return;
+    const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    if(!map[k])map[k]={total:0,agendo:0,sql:0,noShow:0};
+    const e=map[k];e.total++;
+    if(r['¿Agendó?']==='Sí')e.agendo++;
+    const c=(r['Calificación']||r['Calificacion']||'').toLowerCase();
+    if(c.includes('sql calificado'))e.sql++;
+    if(c.includes('no show'))e.noShow++;
+  });
+  const keys=Object.keys(map).sort();
+  if(keys.length<2)return'';
+  const cards=keys.map((k,i)=>{
+    const d=map[k],prev=i>0?map[keys[i-1]]:null;
+    const parts=k.split('-');
+    const label=MES_CORTO[parseInt(parts[1],10)-1]+' '+parts[0];
+    let delta='',cls='';
+    if(prev&&prev.total){
+      const v=Math.round((d.total-prev.total)/prev.total*100);
+      delta=(v>0?'▲ +':v<0?'▼ ':'')+v+'% vs mes ant.';
+      cls=v>0?' green':v<0?' red':'';
+    }
+    return `<div class="metric-card${cls}"><div class="metric-label">${label}${delta?' · '+delta:''}</div>
+      <div class="metric-value">${d.total}</div>
+      <div class="metric-sub">${d.agendo} agendaron (${pct(d.agendo,d.total)}%) · ${d.sql} SQL · ${d.noShow} no show</div></div>`;
+  }).join('');
+  return mSection('l_meses','Comparativa Mensual (leads)',`<div class="metrics-grid">${cards}</div>`);
+}
+
 function renderMetricsLeads(rows, allLLCs, allSeguimientos){
   const total=rows.length;
   const calif=rows.filter(r=>(r['Calificaci\u00f3n']||r['Calificacion']||'').toLowerCase().includes('sql calificado')).length;
@@ -458,6 +493,7 @@ function renderMetricsLeads(rows, allLLCs, allSeguimientos){
       <div class="metric-card gold"><div class="metric-label">SQL Calificado</div><div class="metric-value">${calif}</div><div class="metric-sub">${pct(calif,asistioCount)}% de asistidos</div></div>
       <div class="metric-card purple"><div class="metric-label">LLC Abierta</div><div class="metric-value">${llcCount}</div><div class="metric-sub">${pct(llcCount,calif)}% de SQL</div></div>
     </div>`)}
+    ${renderComparativaMensual(DATA&&DATA.leads)}
     ${canalRentHTML}
     ${nsLeadHTML}
     ${vendorHTML}`;
@@ -652,14 +688,50 @@ document.addEventListener('click',e=>{
 
 function filterDate(id,label){
   return `<div class="filter-group"><span class="filter-label">${label}</span>
-  <input type="date" class="filter-date" id="filter_${id}" onchange="onDateChange()"></div>`;
+  <input type="date" class="filter-date" id="filter_${id}" value="${filters[id]||''}" onchange="onDateChange()"></div>`;
 }
 function onDateChange(){
   const desde=document.getElementById('filter_desde');
   const hasta=document.getElementById('filter_hasta');
   if(desde&&desde.value)filters.desde=desde.value;else delete filters.desde;
   if(hasta&&hasta.value)filters.hasta=hasta.value;else delete filters.hasta;
+  filters.periodo='custom';
+  const sel=document.getElementById('filter_periodo');if(sel)sel.value='custom';
   updateMetrics();renderTable();
+}
+
+// ===== PERIOD SELECTOR =====
+// The leads dataset now covers several months (see ZOHO_LEADS_MONTHS in the
+// function), so periods let you compare instead of always seeing the month.
+const PERIODOS={mes:'Este mes',ant:'Mes anterior','3m':'Últimos 3 meses','6m':'Últimos 6 meses',todo:'Todo el período'};
+function isoDay(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function periodRange(key){
+  const now=new Date(),y=now.getFullYear(),m=now.getMonth();
+  if(key==='mes')return{desde:isoDay(new Date(y,m,1)),hasta:isoDay(new Date(y,m+1,0))};
+  if(key==='ant')return{desde:isoDay(new Date(y,m-1,1)),hasta:isoDay(new Date(y,m,0))};
+  if(key==='3m')return{desde:isoDay(new Date(y,m-2,1)),hasta:isoDay(new Date(y,m+1,0))};
+  if(key==='6m')return{desde:isoDay(new Date(y,m-5,1)),hasta:isoDay(new Date(y,m+1,0))};
+  return null;// 'todo' / 'custom'
+}
+function applyPeriodo(key){
+  filters.periodo=key;
+  const r=periodRange(key);
+  if(r){filters.desde=r.desde;filters.hasta=r.hasta}
+  else{delete filters.desde;delete filters.hasta}
+}
+function setPeriodo(key){
+  applyPeriodo(key);
+  const d=document.getElementById('filter_desde'),h=document.getElementById('filter_hasta');
+  if(d)d.value=filters.desde||'';
+  if(h)h.value=filters.hasta||'';
+  updateMetrics();renderTable();
+}
+function filterPeriodo(){
+  const cur=filters.periodo||'todo';
+  const opts=Object.entries(PERIODOS).map(([k,l])=>`<option value="${k}"${k===cur?' selected':''}>${l}</option>`).join('')
+    +(cur==='custom'?'<option value="custom" selected>Personalizado</option>':'');
+  return `<div class="filter-group"><span class="filter-label">Período</span>
+  <select class="filter-select" id="filter_periodo" onchange="setPeriodo(this.value)">${opts}</select></div>`;
 }
 
 function buildFilters(){
@@ -670,35 +742,44 @@ function buildFilters(){
     html+=multiSelectHTML('canal','Canal',getUniqueValues(DATA.leads,'Canal'));
     html+=multiSelectHTML('calificacion','Calificaci\u00f3n',getUniqueValues(DATA.leads,'Calificaci\u00f3n'));
     html+=multiSelectHTML('vendedor','Vendedor',getUniqueValues(DATA.leads,'Vendedor asignado'));
-    html+=filterDate('desde','Desde')+filterDate('hasta','Hasta');
+    html+=filterPeriodo()+filterDate('desde','Desde')+filterDate('hasta','Hasta');
   } else if(currentTab==='llcs'){
     html+=multiSelectHTML('etapa','Etapa',getUniqueValues(DATA.llcs,'Etapa'));
     html+=multiSelectHTML('canal','Canal',getUniqueValues(DATA.llcs,'Canal de Origen'));
     html+=multiSelectHTML('pago','Pago',getUniqueValues(DATA.llcs,'Confirmaci\u00f3n de pago'));
-    html+=filterDate('desde','Desde')+filterDate('hasta','Hasta');
+    html+=filterPeriodo()+filterDate('desde','Desde')+filterDate('hasta','Hasta');
   } else {
     html+=multiSelectHTML('estatus','Estatus',getUniqueValues(DATA.seguimientos,'Estatus del Lead'));
     html+=multiSelectHTML('canal','Canal',getUniqueValues(DATA.seguimientos,'Canal de Origen'));
     html+=multiSelectHTML('meeting','Meeting',getUniqueValues(DATA.seguimientos,'Estado del Meeting'));
     html+=multiSelectHTML('vendedor','Vendedor',getUniqueValues(DATA.seguimientos,'Vendedor'));
-    html+=filterDate('desde','Desde')+filterDate('hasta','Hasta');
+    html+=filterPeriodo()+filterDate('desde','Desde')+filterDate('hasta','Hasta');
   }
   html+='<button class="btn-clear-filters" onclick="clearFilters()">Limpiar filtros</button>';
   bar.innerHTML=html;
 }
 
-function clearFilters(){filters={};buildFilters();updateMetrics();renderTable()}
+// Default period per tab: leads open on the current month (what the dashboard
+// always showed); llcs/seguimientos keep showing their whole dataset.
+function defaultPeriodo(tab){return tab==='leads'?'mes':'todo'}
+function clearFilters(){filters={};applyPeriodo(defaultPeriodo(currentTab));buildFilters();updateMetrics();renderTable()}
 
 function matchesMulti(value,filterKey){
   if(!filters[filterKey])return true;
   return filters[filterKey].includes(value);
 }
 
+// "YYYY-MM-DD" -> local Date. new Date('2026-07-01') parses as UTC midnight,
+// which in AR (UTC-3) leaks the last 3 hours of the previous month into the range.
+function boundDate(s,endOfDay){
+  const p=s.split('-').map(Number);
+  return endOfDay?new Date(p[0],p[1]-1,p[2],23,59,59,999):new Date(p[0],p[1]-1,p[2],0,0,0,0);
+}
 function matchesDateRange(dateStr){
   if(!filters.desde&&!filters.hasta)return true;
   const d=parseDate(dateStr);if(!d)return false;
-  if(filters.desde&&d<new Date(filters.desde))return false;
-  if(filters.hasta&&d>new Date(filters.hasta+'T23:59:59'))return false;
+  if(filters.desde&&d<boundDate(filters.desde,false))return false;
+  if(filters.hasta&&d>boundDate(filters.hasta,true))return false;
   return true;
 }
 
@@ -804,7 +885,7 @@ function renderTable(){
 }
 
 function switchTab(tab){
-  currentTab=tab;filters={};
+  currentTab=tab;filters={};applyPeriodo(defaultPeriodo(tab));
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['leads','llcs','seguimientos'][i]===tab));
   updateMetrics();buildFilters();renderTable();
 }
@@ -867,10 +948,16 @@ async function fetchData(){
       return !desc.includes('timelines') && !name.includes('new whatsapp contact');
     });
     await loadNotes();
+    if(!filters.periodo)applyPeriodo(defaultPeriodo(currentTab));
     updateMetrics();buildFilters();renderTable();
     const cacheStatus=res.headers.get('X-Cache');
     const cacheLabel=cacheStatus==='HIT'?' (cache)':cacheStatus==='STALE'?' (cache anterior)':'';
-    document.getElementById('lastUpdate').textContent='Actualizado: '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+cacheLabel;
+    let ventana='';
+    if(DATA.leadsSince){
+      const s=new Date(DATA.leadsSince);
+      ventana=' · leads desde '+MES_CORTO[s.getMonth()]+' '+s.getFullYear();
+    }
+    document.getElementById('lastUpdate').textContent='Actualizado: '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+cacheLabel+ventana;
     document.getElementById('errorBanner').style.display='none';
   }catch(err){showError('Error al cargar datos: '+err.message)}
   finally{if(btn)btn.disabled=false}
