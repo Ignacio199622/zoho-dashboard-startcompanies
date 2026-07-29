@@ -219,13 +219,37 @@ function meetingState(events) {
   return 'Sin información';
 }
 
-function deriveCanal(lead) {
-  const src = lead.Lead_Source;
+// Lead_Source arrives with the same channel spelled several ways (the WhatsApp
+// number, the wwebjs bridge, TimelinesAI...). Collapse the variants so "leads by
+// channel" stops splitting one channel into five rows.
+const CANAL_ALIAS = [
+  [/^whatsapp\s*(-|\s)/i, 'WhatsApp'],
+  [/wwebjs/i, 'WhatsApp'],
+  [/^timelinesai/i, 'WhatsApp'],
+  [/^web organic$/i, 'Web Orgánica'],
+  [/^landing page$/i, 'Landing Page'],
+  [/^meta ads$/i, 'Meta Ads'],
+  [/^meta retargeting$/i, 'Meta Retargeting'],
+  [/^forma captacion apertura$/i, 'Meta Ads'],
+  [/^instagram bot$/i, 'Instagram Bot'],
+  [/^reddit ads$/i, 'Reddit Ads'],
+  [/^marca personal$/i, 'Marca Personal'],
+  [/^referidos$/i, 'Referidos']
+];
+
+function normalizarCanal(src) {
   if (!src) return 'NO SE ASIGNÓ CANAL';
-  // Meta Ads splits: leads with a Tipo (service) come from the apertura capture form;
-  // leads without a Tipo come from the LiliBank form.
-  if (src === 'Meta Ads') return lead.Tipo ? 'Forma Captación Apertura' : 'Form LiliBank';
-  return src;
+  const s = String(src).trim();
+  for (const [re, name] of CANAL_ALIAS) if (re.test(s)) return name;
+  return s;
+}
+
+// NOTE: this used to guess the Meta Ads sub-form from `Tipo` ("Forma Captación
+// Apertura" vs "Form LiliBank"). That was a made-up label — which landing a lead
+// came from lives in `Landing_Origen`, so we report the source as-is and expose
+// Landing_Origen as its own column.
+function deriveCanal(lead) {
+  return normalizarCanal(lead.Lead_Source);
 }
 
 function deriveCalificacion(lead, agendo, mstate) {
@@ -249,9 +273,22 @@ function derivePosibilidad(lead, agendo) {
   return 'Sí';
 }
 
-function deriveModalidad(lead, agendo) {
-  if (lead.Lead_Status === 'SQL Calificado') return 'Retargeting';
-  return agendo === 'No' ? 'Formulario Directo' : 'Cierre en Llamada';
+// `Modalidad de Cierre` is a real CRM picklist (Llamada / Retargeting de vendedor
+// / Retargeting empresa). It used to be INVENTED here from `agendó` + Lead_Status,
+// which is why 67% of the dashboard read "Formulario Directo" — a label that does
+// not exist in Zoho. Empty stays empty: an honest gap beats a fabricated value.
+const SIN_DATO = 'Sin dato';
+function valorReal(v) {
+  if (v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length)) return SIN_DATO;
+  return Array.isArray(v) ? v.join(', ') : String(v);
+}
+
+// Which retargeting sequence the lead is in, if any.
+function estadoRetargeting(lead) {
+  if (lead.Nombre_retargeting) return String(lead.Nombre_retargeting);
+  if (lead.En_Nurturing === true) return 'Nurturing';
+  if (lead.Retargeting === true) return 'Sí (sin secuencia)';
+  return 'No';
 }
 
 // Start of the leads window: first day of the month N months back (N = 6 by
@@ -272,15 +309,22 @@ function leadsWindowStart() {
   return new Date(Date.UTC(nowAR.getUTCFullYear(), nowAR.getUTCMonth() - (months - 1), 1, 3, 0, 0));
 }
 
+// Fields pulled from CRM Leads. The attribution ones (Landing_Origen,
+// Modalidad_de_*, Nombre_retargeting) were NOT requested before, so the dashboard
+// had no way to show them even where the CRM had them filled in.
+const LEAD_FIELDS = [
+  'First_Name', 'Last_Name', 'Full_Name', 'Email', 'Phone', 'Mobile',
+  'Lead_Source', 'Lead_Status', 'Created_Time', 'Description', 'Tipo',
+  'Owner', 'Retargeting', 'Landing_Origen', 'Modalidad_de_Cierre',
+  'Modalidad_de_Pago', 'Nombre_retargeting', 'Inicio_Retargeting',
+  'N_mero_de_mensaje', 'En_Nurturing', 'Qui_n_lo_trajo_a_la_llamada', 'fbclid'
+];
+
 // Build the `leads` dataset from CRM, restricted to the relevant recent window.
 // The deleted Analytics view only carried the current month; we pull several
 // months so the dashboard can compare periods month over month.
 async function buildLeads(token) {
-  const leadFields = [
-    'First_Name', 'Last_Name', 'Full_Name', 'Email', 'Phone', 'Mobile',
-    'Lead_Source', 'Lead_Status', 'Created_Time', 'Description', 'Tipo',
-    'Owner', 'Retargeting'
-  ].join(',');
+  const leadFields = LEAD_FIELDS.join(',');
   const eventFields = ['Who_Id', 'What_Id', 'Start_DateTime', 'Status_del_Meet', 'Created_Time'].join(',');
 
   const since = leadsWindowStart();
@@ -301,9 +345,11 @@ async function buildLeads(token) {
     if (id) (evById[id] = evById[id] || []).push(ev);
   });
 
-  return leads
+  const enVentana = leads
     .filter(l => l.Created_Time && new Date(l.Created_Time) >= since)
-    .sort((a, b) => new Date(b.Created_Time) - new Date(a.Created_Time))
+    .sort((a, b) => new Date(b.Created_Time) - new Date(a.Created_Time));
+
+  const rows = enVentana
     .map(l => {
       const evs = evById[l.id] || [];
       const agendo = evs.length ? 'Sí' : 'No';
@@ -313,18 +359,85 @@ async function buildLeads(token) {
         'Servicio': l.Tipo || 'NO SE ASIGNÓ SERVICIO',
         'Nombre y Apellido': l.Full_Name || '',
         'Canal': deriveCanal(l),
+        'Landing Origen': valorReal(l.Landing_Origen),
         'Calificación': deriveCalificacion(l, agendo, mstate),
         'Teléfono': l.Phone || '',
         'Móvil': l.Mobile || '',
         'Mail': l.Email || '',
         '¿Agendó?': agendo,
-        '¿Se contactó por WhatsApp?': l.Retargeting === true ? 'Sí' : 'No',
+        'Retargeting': estadoRetargeting(l),
         'Posibilidad de cierre': derivePosibilidad(l, agendo),
-        'Modalidad de cierre': deriveModalidad(l, agendo),
+        'Modalidad de cierre': valorReal(l.Modalidad_de_Cierre),
+        'Modalidad de pago': valorReal(l.Modalidad_de_Pago),
         'Vendedor asignado': (l.Owner && l.Owner.name) || '',
         'Descripción (antes de contactar)': l.Description || ''
       };
     });
+
+  // `raw` feeds the data-quality tab; the dashboard itself only uses `rows`.
+  return { rows, raw: enVentana };
+}
+
+// ---------------------------------------------------------------------------
+// Data quality: how much of each field is actually filled in, month by month.
+//
+// Most of what the dashboard cannot show is not a dashboard problem — the CRM
+// fields exist but nobody fills them (`Quien_lo_vendio` sat at 0% since forever,
+// `Pago` collapsed from ~30% to 0% in Feb 2026). This makes the gap measurable,
+// which is the only way to know when the numbers can be trusted again.
+// ---------------------------------------------------------------------------
+const OWNER_GENERICO = 'Start Companies Staff';
+
+const CALIDAD_LEADS = [
+  { key: 'Landing_Origen', label: 'Landing Origen' },
+  { key: '__vendedor', label: 'Vendedor real' },
+  { key: 'Modalidad_de_Cierre', label: 'Modalidad de Cierre' },
+  { key: 'Modalidad_de_Pago', label: 'Modalidad de Pago' },
+  { key: 'Nombre_retargeting', label: 'Retargeting' },
+  { key: 'Lead_Status', label: 'Estado del Lead' },
+  { key: 'Tipo', label: 'Servicio' },
+  { key: 'Email', label: 'Email' },
+  { key: 'fbclid', label: 'fbclid (Meta)' }
+];
+
+const DEAL_FIELDS = ['Created_Time', 'Deal_Name', 'Stage', 'Quien_lo_vendio', 'Landing_Origen',
+  'Pago', 'Medios_de_pago', 'Producto', 'Estado_de_Registro', 'Fecha_de_constituci_n'];
+
+const CALIDAD_DEALS = [
+  { key: 'Quien_lo_vendio', label: '¿Quién lo vendió?' },
+  { key: 'Landing_Origen', label: 'Landing Origen' },
+  { key: 'Pago', label: 'Confirmación de pago' },
+  { key: 'Medios_de_pago', label: 'Medios de pago' },
+  { key: 'Producto', label: 'Producto' },
+  { key: 'Estado_de_Registro', label: 'Estado de Registro' },
+  { key: 'Fecha_de_constituci_n', label: 'Fecha de constitución' }
+];
+
+function estaLleno(rec, key) {
+  // The generic owner is not an answer to "who sold this", so it counts as empty.
+  if (key === '__vendedor') return !!(rec.Owner && rec.Owner.name && rec.Owner.name !== OWNER_GENERICO);
+  const v = rec[key];
+  if (v === null || v === undefined || v === '' || v === false) return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return !!(v.name || v.id);
+  return true;
+}
+
+// Created_Time comes as ISO with the org offset (…-03:00), so the first 7 chars
+// are already the Argentine month.
+function completitud(records, campos) {
+  const porMes = {};
+  records.forEach(rec => {
+    const mes = String(rec.Created_Time || '').slice(0, 7);
+    if (!mes) return;
+    if (!porMes[mes]) porMes[mes] = { mes, total: 0, llenos: campos.map(() => 0) };
+    porMes[mes].total++;
+    campos.forEach((c, i) => { if (estaLleno(rec, c.key)) porMes[mes].llenos[i]++; });
+  });
+  return Object.keys(porMes).sort().map(m => {
+    const b = porMes[m];
+    return { mes: b.mes, total: b.total, pct: b.llenos.map(n => Math.round(n / b.total * 100)) };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +449,20 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 const LLCS_VIEW_ID = '3030785000001507660';          // "LLCs Apertura Mes Actual" (still live)
 const SEGUIMIENTOS_VIEW_ID = '3030785000001401002';  // "Seguimientos" (still live)
+
+// Test rows created in the CRM ("Ejemplo", no contact data) were being counted as
+// real LLCs. They can only be deleted in Zoho — this token is read-only — so we
+// keep them out of the dashboard instead. Deliberately conservative: a row is
+// only dropped when it looks like a placeholder AND carries no contact at all.
+const NOMBRES_PRUEBA = /^(ejemplo|test|testing|prueba|demo)\b/i;
+function esRegistroReal(row) {
+  const llc = (row['LLC'] || '').trim();
+  const nombre = (row['Nombre'] || '').trim();
+  const email = (row['Email'] || '').trim();
+  if (!llc && !nombre && !email) return false;
+  if (NOMBRES_PRUEBA.test(llc) && !email && !nombre) return false;
+  return true;
+}
 
 exports.handler = async (event) => {
   const headers = {
@@ -355,18 +482,28 @@ exports.handler = async (event) => {
 
     const token = await getAccessToken();
 
-    const [leads, llcs, seguimientos] = await Promise.all([
-      buildLeads(token),                       // CRM-derived (view deleted)
-      exportView(token, LLCS_VIEW_ID),         // surviving Analytics view
-      exportView(token, SEGUIMIENTOS_VIEW_ID)  // surviving Analytics view
+    const since = leadsWindowStart();
+
+    const [leadsData, llcsRaw, seguimientos, deals] = await Promise.all([
+      buildLeads(token),                         // CRM-derived (view deleted)
+      exportView(token, LLCS_VIEW_ID),           // surviving Analytics view
+      exportView(token, SEGUIMIENTOS_VIEW_ID),   // surviving Analytics view
+      crmGetSince(token, 'Deals', DEAL_FIELDS.join(','), since)  // only for the quality tab
     ]);
+
+    const llcs = llcsRaw.filter(esRegistroReal);
 
     const body = JSON.stringify({
       timestamp: new Date().toISOString(),
-      leadsSince: leadsWindowStart().toISOString(),  // start of the leads window (for the UI)
-      leads,
+      leadsSince: since.toISOString(),  // start of the leads window (for the UI)
+      leads: leadsData.rows,
       llcs,
-      seguimientos
+      seguimientos,
+      calidad: {
+        desde: since.toISOString(),
+        leads: { campos: CALIDAD_LEADS.map(c => c.label), meses: completitud(leadsData.raw, CALIDAD_LEADS) },
+        llcs: { campos: CALIDAD_DEALS.map(c => c.label), meses: completitud(deals, CALIDAD_DEALS) }
+      }
     });
 
     cache = body;

@@ -123,6 +123,19 @@ tr.alert-row td{background:rgba(201,162,39,.08);border-left:3px solid var(--gold
 tr.alert-row td:first-child{padding-left:12px}
 tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 
+/* ===== CALIDAD DE DATOS ===== */
+.q-intro{padding:16px 24px;color:var(--text2);font-size:13px;line-height:1.6;border-bottom:1px solid var(--border)}
+.q-intro strong{color:var(--text)}
+.q-block{padding:0 0 8px}
+.q-title{padding:16px 24px 10px;font-size:14px;font-weight:600;letter-spacing:.3px}
+.q-table td{white-space:nowrap;max-width:none}
+.q-field{font-weight:500}
+.q-total{display:block;font-weight:400;color:var(--text2);text-transform:none;letter-spacing:0;font-size:10px;margin-top:2px}
+.q-cell{text-align:center;font-variant-numeric:tabular-nums;font-weight:600}
+.q-bad{color:#ff5c7a;background:rgba(255,92,122,.10)}
+.q-mid{color:var(--gold);background:rgba(201,162,39,.10)}
+.q-ok{color:#2ecc8f;background:rgba(46,204,143,.10)}
+
 /* ===== NOTES ===== */
 .note-btn{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.4;transition:opacity .2s}
 .note-btn:hover{opacity:1}
@@ -235,6 +248,7 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
       <button class="tab active" onclick="switchTab('leads')">Lead Totales</button>
       <button class="tab" onclick="switchTab('llcs')">LLCs Apertura</button>
       <button class="tab" onclick="switchTab('seguimientos')">Seguimientos</button>
+      <button class="tab" onclick="switchTab('calidad')">Calidad de Datos</button>
     </div>
 
     <!-- Filters -->
@@ -318,7 +332,8 @@ function showDashboard(user){
 
 // ===== STATE =====
 let DATA=null, currentTab='leads', filters={};
-const TITLES={leads:'Lead Totales y Flujos',llcs:'LLCs Apertura Mes Actual',seguimientos:'Seguimientos'};
+const TITLES={leads:'Lead Totales y Flujos',llcs:'LLCs Apertura Mes Actual',seguimientos:'Seguimientos',calidad:'Calidad de Datos'};
+const TABS=['leads','llcs','seguimientos','calidad'];
 
 // ===== DATE HELPERS =====
 function parseDate(str){if(!str)return null;const d=new Date(str);return isNaN(d)?null:d}
@@ -401,10 +416,12 @@ function renderMetricsLeads(rows, allLLCs, allSeguimientos){
   // By channel
   const channels={};
   rows.forEach(r=>{const c=r['Canal']||'Otro';channels[c]=(channels[c]||0)+1});
-  const organic=channels['Web Organic']||0;
-  const meta=(channels['Meta Form']||0)+(channels['Facebook']||0);
+  // Nombres canonicos: la funcion ya unifica las variantes de Lead_Source
+  // (4 formas distintas de escribir WhatsApp, "Forma Captacion Apertura" = Meta Ads).
+  const organic=channels['Web Orgánica']||0;
+  const meta=(channels['Meta Ads']||0)+(channels['Meta Retargeting']||0);
   const landing=channels['Landing Page']||0;
-  const wa=Object.entries(channels).filter(([k])=>k.toLowerCase().includes('whatsapp')).reduce((s,[,v])=>s+v,0);
+  const wa=channels['WhatsApp']||0;
   const referidos=(channels['Referidos']||0)+(channels['Marca Personal']||0);
 
   const metaAll=rows.filter(r=>{const c=(r['Canal']||'').toLowerCase();return c.includes('meta')||c.includes('facebook')});
@@ -617,12 +634,28 @@ function updateMetrics(){
   if(!DATA)return;
   const el=document.getElementById('metricsSection');
   const rows=getFilteredRows();
-  if(currentTab==='leads') el.innerHTML=renderMetricsLeads(rows,DATA.llcs,DATA.seguimientos);
+  if(currentTab==='calidad') el.innerHTML=renderMetricsCalidad();
+  else if(currentTab==='leads') el.innerHTML=renderMetricsLeads(rows,DATA.llcs,DATA.seguimientos);
   else if(currentTab==='llcs') el.innerHTML=renderMetricsLLCs(rows,DATA.leads);
   else el.innerHTML=renderMetricsSeguimientos(rows);
 }
 
 // ===== BADGES =====
+// Un hueco de datos se muestra como hueco. Antes estos campos venian rellenados
+// con etiquetas inventadas por la funcion, asi que un dato real y uno fabricado
+// se veian exactamente igual.
+const SIN_DATO='Sin dato';
+function sinDato(v){
+  if(!v||v===SIN_DATO)return`<span class="badge badge-gray">${SIN_DATO}</span>`;
+  return esc(v);
+}
+const OWNER_GENERICO='Start Companies Staff';
+function vendedorCell(v){
+  if(!v)return`<span class="badge badge-gray">${SIN_DATO}</span>`;
+  if(v===OWNER_GENERICO)return`<span class="badge badge-gray" title="Due&ntilde;o por defecto en Zoho: nadie lo reasign&oacute; a un vendedor real">Sin asignar</span>`;
+  return esc(v);
+}
+
 function calificacionBadge(val){
   if(!val)return'<span class="badge badge-gray">Sin dato</span>';const v=val.toLowerCase();
   if(v.includes('sql calificado'))return`<span class="badge badge-green">${val}</span>`;
@@ -746,8 +779,10 @@ function buildFilters(){
   if(!DATA)return;
   const bar=document.getElementById('filtersBar');
   let html='';
+  if(currentTab==='calidad'){bar.innerHTML='';return}
   if(currentTab==='leads'){
     html+=multiSelectHTML('canal','Canal',getUniqueValues(DATA.leads,'Canal'));
+    html+=multiSelectHTML('landing','Landing Origen',getUniqueValues(DATA.leads,'Landing Origen'));
     html+=multiSelectHTML('calificacion','Calificaci\u00f3n',getUniqueValues(DATA.leads,'Calificaci\u00f3n'));
     html+=multiSelectHTML('vendedor','Vendedor',getUniqueValues(DATA.leads,'Vendedor asignado'));
     html+=filterPeriodo()+filterDate('desde','Desde')+filterDate('hasta','Hasta');
@@ -793,9 +828,11 @@ function matchesDateRange(dateStr){
 
 function getFilteredRows(){
   if(!DATA)return[];
+  if(currentTab==='calidad')return[];   // la solapa de calidad no es una tabla de registros
   if(currentTab==='leads'){
     return DATA.leads.filter(r=>{
       if(!matchesMulti(r['Canal'],'canal'))return false;
+      if(!matchesMulti(r['Landing Origen'],'landing'))return false;
       if(!matchesMulti(r['Calificaci\u00f3n']||r['Calificacion'],'calificacion'))return false;
       if(!matchesMulti(r['Vendedor asignado'],'vendedor'))return false;
       return matchesDateRange(r['Fecha']);
@@ -822,21 +859,22 @@ function getFilteredRows(){
 function renderLeads(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
-    <th></th><th>Fecha</th><th>Servicio</th><th>Nombre</th><th>Canal</th><th>Calificaci\u00f3n</th>
-    <th>Tel\u00e9fono</th><th>Mail</th><th>Agend\u00f3?</th><th>Posibilidad</th><th>Modalidad</th><th>Vendedor</th>
+    <th></th><th>Fecha</th><th>Servicio</th><th>Nombre</th><th>Canal</th><th>Landing Origen</th><th>Calificaci\u00f3n</th>
+    <th>Tel\u00e9fono</th><th>Mail</th><th>Agend\u00f3?</th><th>Retargeting</th><th>Modalidad de cierre</th><th>Vendedor</th>
   </tr></thead><tbody>${rows.map(r=>{const nk='lead_'+(normEmail(r['Mail'])||esc(r['Nombre y Apellido']));return `<tr>
     <td>${noteBtn(nk,r['Nombre y Apellido']||'Lead')}</td>
     <td>${esc(r['Fecha'])}</td>
     <td>${esc(r['Servicio'])}</td>
     <td><strong>${esc(r['Nombre y Apellido'])}</strong></td>
     <td>${esc(r['Canal'])}</td>
+    <td>${sinDato(r['Landing Origen'])}</td>
     <td>${calificacionBadge(r['Calificaci\u00f3n']||r['Calificacion'])}</td>
     <td>${esc(r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'])}</td>
     <td>${esc(r['Mail'])}</td>
     <td>${r['\u00bfAgend\u00f3?']==='S\u00ed'?'<span class="badge badge-green">S\u00ed</span>':'<span class="badge badge-gray">'+esc(r['\u00bfAgend\u00f3?'])+'</span>'}</td>
-    <td>${r['Posibilidad de cierre']==='S\u00ed'?'<span class="badge badge-green">S\u00ed</span>':'<span class="badge badge-gray">'+esc(r['Posibilidad de cierre'])+'</span>'}</td>
-    <td>${esc(r['Modalidad de cierre'])}</td>
-    <td>${esc(r['Vendedor asignado'])}</td>
+    <td>${r['Retargeting']==='No'?'<span class="badge badge-gray">No</span>':'<span class="badge badge-gold">'+esc(r['Retargeting'])+'</span>'}</td>
+    <td>${sinDato(r['Modalidad de cierre'])}</td>
+    <td>${vendedorCell(r['Vendedor asignado'])}</td>
   </tr>`}).join('')}</tbody></table>`;
 }
 
@@ -854,7 +892,7 @@ function renderLLCs(rows){
     <td>${esc(r['Email'])}</td>
     <td>${esc(r['Tel\u00e9fono']||r['Telefono'])}</td>
     <td>${esc(r['Canal de Origen'])}</td>
-    <td>${esc(r['Vendedor'])}</td>
+    <td>${vendedorCell(r['Vendedor'])}</td>
     <td>${pagoBadge(r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago'])}</td>
   </tr>`}).join('')}</tbody></table>`;
 }
@@ -873,11 +911,52 @@ function renderSeguimientos(rows){
     <td><strong>${esc(r['Nombre'])} ${esc(r['Apellido'])}</strong></td>
     <td>${esc(r['Mail'])}</td>
     <td>${calificacionBadge(r['Estatus del Lead'])}</td>
-    <td>${esc(r['Vendedor'])}</td>
+    <td>${vendedorCell(r['Vendedor'])}</td>
     <td>${esc(r['Canal de Origen'])}</td>
     <td>${meetingBadge(r['Estado del Meeting'])}</td>
     <td style="white-space:normal;max-width:300px" title="${esc(r['Descripci\u00f3n']||r['Descripcion'])}">${esc(r['Descripci\u00f3n']||r['Descripcion']||'')}</td>
   </tr>`}).join('')}</tbody></table>`;
+}
+
+// ===== CALIDAD DE DATOS =====
+// Cuanto de cada campo del CRM esta realmente cargado, mes a mes. Sin esto, un
+// numero vacio y un numero real se ven igual en el resto del dashboard.
+function mesLabel(k){const p=k.split('-');return MES_CORTO[parseInt(p[1],10)-1]+' '+p[0].slice(2)}
+function qClass(p){return p>=70?'q-ok':p>=30?'q-mid':'q-bad'}
+
+function bloqueCalidad(titulo,b){
+  if(!b||!b.meses||!b.meses.length)return'';
+  const m=b.meses;
+  return `<div class="q-block"><div class="q-title">${esc(titulo)}</div>
+  <div class="table-scroll"><table class="q-table"><thead><tr><th>Campo</th>
+  ${m.map(x=>`<th>${mesLabel(x.mes)}<span class="q-total">${x.total} reg.</span></th>`).join('')}
+  </tr></thead><tbody>
+  ${b.campos.map((c,i)=>`<tr><td class="q-field">${esc(c)}</td>${m.map(x=>`<td class="q-cell ${qClass(x.pct[i])}">${x.pct[i]}%</td>`).join('')}</tr>`).join('')}
+  </tbody></table></div></div>`;
+}
+
+function renderCalidad(){
+  if(!DATA||!DATA.calidad)return'<div class="loading"><div class="loading-text">Sin datos de calidad</div></div>';
+  return `<div class="q-intro">Porcentaje de registros que tienen <strong>cargado</strong> cada campo en Zoho.
+  El dashboard solo puede mostrar lo que est&aacute; ac&aacute; en verde: donde dice 0% no hay un problema de reporte,
+  no hay dato. <strong>Vendedor real</strong> cuenta los leads cuyo due&ntilde;o no es el usuario gen&eacute;rico
+  &laquo;Start Companies Staff&raquo;.</div>
+  ${bloqueCalidad('Leads',DATA.calidad.leads)}
+  ${bloqueCalidad('LLCs / Aperturas',DATA.calidad.llcs)}`;
+}
+
+function renderMetricsCalidad(){
+  if(!DATA||!DATA.calidad)return'';
+  const bloques=[['Leads',DATA.calidad.leads],['LLCs / Aperturas',DATA.calidad.llcs]];
+  return bloques.map(([t,b])=>{
+    if(!b||!b.meses||!b.meses.length)return'';
+    const ult=b.meses[b.meses.length-1];
+    const cards=b.campos.map((c,i)=>{
+      const p=ult.pct[i],cl=p>=70?' green':p>=30?' gold':' red';
+      return `<div class="metric-card${cl}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${p}%</div></div>`;
+    }).join('');
+    return mSection('q_'+t.slice(0,4),`Completitud en ${mesLabel(ult.mes)} · ${t}`,`<div class="metrics-grid">${cards}</div>`);
+  }).join('');
 }
 
 // ===== RENDER =====
@@ -886,24 +965,36 @@ function renderTable(){
   const el=document.getElementById('tableContent');
   const rows=getFilteredRows();
   document.getElementById('tableTitle').textContent=TITLES[currentTab];
-  document.getElementById('tableCount').textContent=rows.length+' registros';
-  if(currentTab==='leads')el.innerHTML=renderLeads(rows);
+  document.getElementById('tableCount').textContent=currentTab==='calidad'?'':rows.length+' registros';
+  if(currentTab==='calidad')el.innerHTML=renderCalidad();
+  else if(currentTab==='leads')el.innerHTML=renderLeads(rows);
   else if(currentTab==='llcs')el.innerHTML=renderLLCs(rows);
   else el.innerHTML=renderSeguimientos(rows);
 }
 
 function switchTab(tab){
   currentTab=tab;filters={};applyPeriodo(defaultPeriodo(tab));
-  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['leads','llcs','seguimientos'][i]===tab));
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',TABS[i]===tab));
   updateMetrics();buildFilters();renderTable();
 }
 
 // ===== EXPORT =====
 function getExportData(){
   const rows=getFilteredRows();let headers,data;
+  if(currentTab==='calidad'){
+    // La matriz de completitud, para poder mandarsela al equipo tal cual.
+    const c=DATA&&DATA.calidad;
+    headers=['Dataset','Campo'].concat(c&&c.leads.meses.length?c.leads.meses.map(m=>mesLabel(m.mes)):[]);
+    data=[];
+    [['Leads',c&&c.leads],['LLCs',c&&c.llcs]].forEach(([t,b])=>{
+      if(!b||!b.meses.length)return;
+      b.campos.forEach((campo,i)=>data.push([t,campo].concat(b.meses.map(m=>m.pct[i]+'%'))));
+    });
+    return{headers,data};
+  }
   if(currentTab==='leads'){
-    headers=['Fecha','Servicio','Nombre','Canal','Calificacion','Telefono','Mail','Agendo','Posibilidad','Modalidad','Vendedor'];
-    data=rows.map(r=>[r['Fecha'],r['Servicio'],r['Nombre y Apellido'],r['Canal'],r['Calificaci\u00f3n']||r['Calificacion'],r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'],r['Mail'],r['\u00bfAgend\u00f3?'],r['Posibilidad de cierre'],r['Modalidad de cierre'],r['Vendedor asignado']]);
+    headers=['Fecha','Servicio','Nombre','Canal','Landing Origen','Calificacion','Telefono','Mail','Agendo','Retargeting','Modalidad de cierre','Modalidad de pago','Vendedor'];
+    data=rows.map(r=>[r['Fecha'],r['Servicio'],r['Nombre y Apellido'],r['Canal'],r['Landing Origen'],r['Calificaci\u00f3n']||r['Calificacion'],r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'],r['Mail'],r['\u00bfAgend\u00f3?'],r['Retargeting'],r['Modalidad de cierre'],r['Modalidad de pago'],r['Vendedor asignado']]);
   }else if(currentTab==='llcs'){
     headers=['Fecha','LLC','Etapa','Nombre','Email','Telefono','Canal','Vendedor','Pago'];
     data=rows.map(r=>[r['Fecha'],r['LLC'],r['Etapa'],r['Nombre'],r['Email'],r['Tel\u00e9fono']||r['Telefono'],r['Canal de Origen'],r['Vendedor'],r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago']]);
