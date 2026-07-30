@@ -366,6 +366,11 @@ async function buildLeads(token) {
         'Móvil': l.Mobile || '',
         'Mail': l.Email || '',
         '¿Agendó?': agendo,
+        // Estado del meeting salido de los Events del propio lead. El embudo lo
+        // calculaba cruzando mails contra la vista de Seguimientos, que cubre otra
+        // ventana y solo alcanza a los leads con email: daba "asistieron" mas bajo
+        // que "SQL" y el embudo subia en vez de bajar.
+        'Estado del meeting': mstate,
         'Retargeting': estadoRetargeting(l),
         'Posibilidad de cierre': derivePosibilidad(l, agendo),
         'Modalidad de cierre': valorReal(l.Modalidad_de_Cierre),

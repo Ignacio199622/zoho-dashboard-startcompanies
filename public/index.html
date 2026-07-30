@@ -123,6 +123,49 @@ tr.alert-row td{background:rgba(201,162,39,.08);border-left:3px solid var(--gold
 tr.alert-row td:first-child{padding-left:12px}
 tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 
+/* ===== KPIs Y GRAFICOS ===== */
+/* Rampa secuencial de un solo tono: la magnitud ya la codifica el largo de la
+   barra, el color solo refuerza la progresion. Los 5 pasos estan validados a
+   >=3:1 de contraste sobre --surface y con luminancia monotona creciente. */
+:root{
+  --s1:#006AFE;--s2:#3d8bff;--s3:#66a5ff;--s4:#8fbfff;--s5:#b8d8ff;
+  --track:#12304e;
+}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px}
+.kpi-tile{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.kpi-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+.kpi-main{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.kpi-value{font-size:32px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.kpi-delta{font-size:12px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.kpi-up{color:var(--green)}.kpi-down{color:var(--red)}.kpi-flat{color:var(--text2)}
+.kpi-sub{font-size:11px;color:var(--text2)}
+.kpi-spark{margin-top:2px;height:28px;width:100%;display:block;overflow:visible}
+
+.charts-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:16px}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;min-width:0}
+.chart-title{font-size:13px;font-weight:600;margin-bottom:2px}
+.chart-note{font-size:11px;color:var(--text2);margin-bottom:14px}
+.chart-plot{position:relative}
+.chart-svg{display:block;width:100%;height:150px;overflow:visible}
+.chart-xaxis{display:flex;margin-top:6px}
+.chart-xlabel{flex:1;text-align:center;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.4px}
+.chart-hit{position:absolute;inset:0;display:flex}
+.chart-hitcol{flex:1;cursor:default}
+
+/* Barras horizontales en HTML: el texto no se deforma con el ancho y es
+   responsive sin calculos, a diferencia de meter las etiquetas dentro del SVG. */
+.hbar{display:grid;grid-template-columns:minmax(88px,132px) 1fr auto;align-items:center;gap:10px;padding:5px 0}
+.hbar-label{font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbar-track{background:var(--track);border-radius:4px;height:16px;overflow:hidden}
+.hbar-fill{height:100%;border-radius:4px;min-width:3px;transition:filter .15s}
+.hbar:hover .hbar-fill{filter:brightness(1.18)}
+.hbar-value{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.hbar-pct{color:var(--text2);font-weight:400;font-size:11px}
+
+.chart-tip{position:fixed;z-index:300;pointer-events:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;line-height:1.5;box-shadow:0 8px 24px rgba(0,0,0,.45);opacity:0;transition:opacity .12s;white-space:nowrap}
+.chart-tip.show{opacity:1}
+.chart-tip b{font-size:13px}
+
 /* ===== CALIDAD DE DATOS ===== */
 .q-intro{padding:16px 24px;color:var(--text2);font-size:13px;line-height:1.6;border-bottom:1px solid var(--border)}
 .q-intro strong{color:var(--text)}
@@ -380,6 +423,167 @@ function toggleSection(id){
   arrow.classList.toggle('collapsed');
 }
 
+// ===== VENTANA ACTUAL VS ANTERIOR =====
+// Un numero suelto no dice nada; lo que importa es contra que se compara.
+// La ventana anterior es del mismo largo, pegada hacia atras.
+function ventanaActual(){
+  if(!filters.desde||!filters.hasta)return null;
+  return{desde:boundDate(filters.desde,false),hasta:boundDate(filters.hasta,true)};
+}
+function ventanaAnterior(){
+  const v=ventanaActual();if(!v)return null;
+  const largo=v.hasta-v.desde;
+  return{desde:new Date(v.desde.getTime()-largo-1),hasta:new Date(v.desde.getTime()-1)};
+}
+function enVentana(rows,v,campoFecha){
+  if(!v)return rows;
+  return rows.filter(r=>{const d=parseDate(r[campoFecha||'Fecha']);return d&&d>=v.desde&&d<=v.hasta});
+}
+
+// ===== SERIES MENSUALES (para los sparklines y la tendencia) =====
+function claveMes(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
+function serieMensual(rows,campoFecha,filtro){
+  const m={};
+  rows.forEach(r=>{
+    if(filtro&&!filtro(r))return;
+    const d=parseDate(r[campoFecha||'Fecha']);if(!d)return;
+    const k=claveMes(d);m[k]=(m[k]||0)+1;
+  });
+  return Object.keys(m).sort().map(k=>({mes:k,valor:m[k]}));
+}
+
+// ===== EMBUDO =====
+// Los cinco escalones que ya calculaba el resumen, en un solo lugar para que el
+// grafico y las tarjetas no puedan contradecirse.
+// El embudo llega hasta SQL y no hasta "LLC abierta" a proposito: al convertirse,
+// Zoho saca el lead del modulo Leads, asi que los leads que leemos son justamente
+// los que NO convirtieron. De 293 LLCs en la misma ventana, exactamente 1 cruza
+// con un lead por mail. El paso Lead -> LLC no es medible con estos dos datasets
+// (contra Seguimientos el mismo cruce anda: 432 de 490), asi que mostrarlo era
+// inventar un numero. Las LLCs se cuentan aparte, como metrica propia.
+function calcularEmbudo(rows){
+  const total=rows.length;
+  const agendo=rows.filter(r=>r['¿Agendó?']==='Sí').length;
+  // Sale de los Events del propio lead, misma ventana y sin depender de que el
+  // lead tenga mail cargado. Cruzarlo contra Seguimientos hacia subir el embudo.
+  const asistio=rows.filter(r=>r['Estado del meeting']==='Asistió').length;
+  const sql=rows.filter(r=>(r['Calificación']||r['Calificacion']||'').toLowerCase().includes('sql calificado')).length;
+  return[
+    {etapa:'Leads',valor:total},
+    {etapa:'Agendaron',valor:agendo},
+    {etapa:'Asistieron',valor:asistio},
+    {etapa:'SQL Calificado',valor:sql}
+  ];
+}
+
+// ===== PIEZAS VISUALES =====
+const RAMPA=['var(--s1)','var(--s2)','var(--s3)','var(--s4)','var(--s5)'];
+
+function deltaHTML(actual,previo){
+  if(previo===null||previo===undefined)return'';
+  if(!previo)return`<span class="kpi-delta kpi-flat">sin base previa</span>`;
+  const v=Math.round((actual-previo)/previo*100);
+  const cl=v>0?'kpi-up':v<0?'kpi-down':'kpi-flat';
+  const flecha=v>0?'▲':v<0?'▼':'▬';
+  return`<span class="kpi-delta ${cl}">${flecha} ${v>0?'+':''}${v}%</span>`;
+}
+
+// Sparkline: contexto, no lectura precisa. Sin ejes ni etiquetas a proposito.
+function sparklineSVG(serie){
+  if(!serie||serie.length<2)return'';
+  const w=100,h=28,vals=serie.map(p=>p.valor);
+  const max=Math.max(...vals),min=Math.min(...vals),rango=(max-min)||1;
+  const x=i=>i/(serie.length-1)*w;
+  const y=v=>h-2-((v-min)/rango)*(h-6);
+  const linea=serie.map((p,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(p.valor).toFixed(1)}`).join(' ');
+  const area=`${linea} L${w},${h} L0,${h} Z`;
+  const ult=serie[serie.length-1];
+  return`<svg class="kpi-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+    <path d="${area}" fill="var(--s1)" opacity=".16"/>
+    <path d="${linea}" fill="none" stroke="var(--s2)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${x(serie.length-1).toFixed(1)}" cy="${y(ult.valor).toFixed(1)}" r="2.5" fill="var(--s3)" vector-effect="non-scaling-stroke"/>
+  </svg>`;
+}
+
+function kpiTile(label,valor,sub,delta,serie){
+  return`<div class="kpi-tile">
+    <div class="kpi-label">${esc(label)}</div>
+    <div class="kpi-main"><span class="kpi-value">${valor}</span>${delta||''}</div>
+    ${sub?`<div class="kpi-sub">${sub}</div>`:''}
+    ${serie?sparklineSVG(serie):''}
+  </div>`;
+}
+
+// Barras horizontales. Un solo tono salvo que se pase una rampa (embudo).
+function barrasHTML(items,opts){
+  const o=opts||{};
+  if(!items.length)return'<div class="kpi-sub">Sin datos en el per&iacute;odo</div>';
+  const max=Math.max(...items.map(i=>i.valor))||1;
+  return items.map((it,i)=>{
+    const color=o.rampa?RAMPA[Math.min(i,RAMPA.length-1)]:'var(--s2)';
+    const pct=o.pctSobre?pct2(it.valor,o.pctSobre):null;
+    return`<div class="hbar" data-tip="${esc(it.tip||(it.etiqueta+': '+it.valor))}">
+      <div class="hbar-label" title="${esc(it.etiqueta)}">${esc(it.etiqueta)}</div>
+      <div class="hbar-track"><div class="hbar-fill" style="width:${(it.valor/max*100).toFixed(1)}%;background:${color}"></div></div>
+      <div class="hbar-value">${it.valor}${pct!==null?` <span class="hbar-pct">${pct}%</span>`:''}</div>
+    </div>`;
+  }).join('');
+}
+function pct2(a,b){return b?Math.round(a/b*100):0}
+
+// Linea de tendencia. Las etiquetas del eje van en HTML debajo, no dentro del
+// SVG: metidas adentro se estiran con el ancho del contenedor.
+function tendenciaHTML(serie,titulo,nota){
+  if(!serie||serie.length<2)return'';
+  const w=600,h=150,pad=8;
+  const vals=serie.map(p=>p.valor);
+  const max=Math.max(...vals)||1;
+  const x=i=>pad+i/(serie.length-1)*(w-pad*2);
+  const y=v=>h-16-(v/max)*(h-32);
+  const linea=serie.map((p,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(p.valor).toFixed(1)}`).join(' ');
+  const area=`${linea} L${x(serie.length-1).toFixed(1)},${h-16} L${x(0).toFixed(1)},${h-16} Z`;
+  const puntos=serie.map((p,i)=>`<circle cx="${x(i).toFixed(1)}" cy="${y(p.valor).toFixed(1)}" r="4" fill="var(--s3)" stroke="var(--surface)" stroke-width="2"/>`).join('');
+  const hits=serie.map(p=>`<div class="chart-hitcol" data-tip="${esc(mesLargo(p.mes)+': '+p.valor+' leads')}"></div>`).join('');
+  const ejes=serie.map(p=>`<div class="chart-xlabel">${mesLabel(p.mes)}</div>`).join('');
+  return`<div class="chart-card">
+    <div class="chart-title">${esc(titulo)}</div>
+    <div class="chart-note">${esc(nota||'')}</div>
+    <div class="chart-plot">
+      <svg class="chart-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <line x1="${pad}" y1="${h-16}" x2="${w-pad}" y2="${h-16}" stroke="var(--border)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+        <path d="${area}" fill="var(--s1)" opacity=".16"/>
+        <path d="${linea}" fill="none" stroke="var(--s2)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+        ${puntos}
+      </svg>
+      <div class="chart-hit">${hits}</div>
+    </div>
+    <div class="chart-xaxis">${ejes}</div>
+  </div>`;
+}
+function mesLargo(k){const p=k.split('-');return MES_CORTO[parseInt(p[1],10)-1]+' '+p[0]}
+
+// ===== TOOLTIP =====
+// Un solo nodo reutilizado para todo lo que tenga data-tip.
+(function(){
+  let tip=null;
+  function nodo(){
+    if(!tip){tip=document.createElement('div');tip.className='chart-tip';document.body.appendChild(tip)}
+    return tip;
+  }
+  document.addEventListener('mousemove',e=>{
+    const t=e.target.closest&&e.target.closest('[data-tip]');
+    const n=nodo();
+    if(!t){n.classList.remove('show');return}
+    n.innerHTML=t.getAttribute('data-tip');
+    n.classList.add('show');
+    const r=n.getBoundingClientRect();
+    let x=e.clientX+14,y=e.clientY-r.height-10;
+    if(x+r.width>window.innerWidth-8)x=e.clientX-r.width-14;
+    if(y<8)y=e.clientY+18;
+    n.style.left=x+'px';n.style.top=y+'px';
+  });
+})();
+
 // ===== METRICS =====
 // Month-over-month view. Always computed over the FULL leads dataset (not the
 // active period filter), so it stays comparable no matter what is selected.
@@ -424,6 +628,72 @@ function renderComparativaMensual(allLeads){
   return mSection('l_meses','Comparativa Mensual (leads)',`<div class="metrics-grid">${cards}</div>`);
 }
 
+// Cabecera de la solapa de leads: lo que tiene que entenderse sin hacer un clic.
+function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
+  const emb=calcularEmbudo(rows);
+  const total=emb[0].valor,agendo=emb[1].valor,asistio=emb[2].valor,sql=emb[3].valor;
+  // Metrica propia, no un paso del embudo: las LLCs del periodo se cuentan por su
+  // fecha, no cruzandolas con los leads (ese cruce no existe, ver calcularEmbudo).
+  const llc=enVentana(allLLCs||[],ventanaActual()).length;
+
+  // Mismas cuentas sobre la ventana inmediatamente anterior, para los deltas.
+  const prev=ventanaAnterior();
+  let pTotal=null,pAgendoTasa=null,pSql=null,pLlc=null;
+  if(prev){
+    const pr=enVentana(DATA.leads,prev);
+    const pe=calcularEmbudo(pr);
+    pTotal=pe[0].valor;
+    pAgendoTasa=pct(pe[1].valor,pe[0].valor);
+    pSql=pe[3].valor;
+    pLlc=enVentana(allLLCs||[],prev).length;
+  }
+
+  const serieLeads=serieMensual(DATA.leads);
+  const serieSQL=serieMensual(DATA.leads,'Fecha',r=>(r['Calificación']||'').toLowerCase().includes('sql calificado'));
+  const serieLLC=serieMensual(DATA.llcs||[]);
+  const tasa=pct(agendo,total);
+
+  const kpis=`<div class="kpi-row">
+    ${kpiTile('Leads',total,'en el per&iacute;odo elegido',deltaHTML(total,pTotal),serieLeads)}
+    ${kpiTile('Tasa de agendamiento',tasa+'%',agendo+' de '+total+' agendaron',deltaHTML(tasa,pAgendoTasa),null)}
+    ${kpiTile('Asistieron',asistio,pct(asistio,agendo)+'% de los que agendaron',null,null)}
+    ${kpiTile('SQL Calificados',sql,pct(sql,total)+'% de los leads',deltaHTML(sql,pSql),serieSQL)}
+    ${kpiTile('LLCs abiertas',llc,'en el per&iacute;odo, medidas aparte',deltaHTML(llc,pLlc),serieLLC)}
+  </div>`;
+
+  // Embudo: barras horizontales con el % de paso respecto del escalon anterior,
+  // que es la pregunta real ("donde se cae la gente"), no el % sobre el total.
+  const embudoItems=emb.map((e,i)=>({
+    etiqueta:e.etapa,
+    valor:e.valor,
+    tip:`<b>${e.etapa}: ${e.valor}</b>`+(i?`<br>${pct2(e.valor,emb[i-1].valor)}% de ${emb[i-1].etapa.toLowerCase()}`:'')
+  }));
+  const embudo=`<div class="chart-card">
+    <div class="chart-title">Embudo</div>
+    <div class="chart-note">Cada barra, sobre el total de leads. Llega hasta SQL: el paso a LLC no se puede medir porque Zoho saca al lead del m&oacute;dulo cuando se convierte</div>
+    ${barrasHTML(embudoItems,{rampa:true,pctSobre:total})}
+  </div>`;
+
+  // Canales: magnitud sobre un mismo eje, un solo tono. Los canales basura
+  // (herramientas, numeros sueltos) quedan afuera para no ensuciar la lectura.
+  const cuenta={};
+  rows.forEach(r=>{const c=r['Canal']||'Otro';if(!isJunkCanal(c))cuenta[c]=(cuenta[c]||0)+1});
+  const canales=Object.entries(cuenta).sort((a,b)=>b[1]-a[1]).slice(0,7)
+    .map(([c,n])=>{
+      const ag=rows.filter(r=>r['Canal']===c&&r['¿Agendó?']==='Sí').length;
+      return{etiqueta:c,valor:n,tip:`<b>${esc(c)}: ${n} leads</b><br>${ag} agendaron (${pct2(ag,n)}%)`};
+    });
+  const porCanal=`<div class="chart-card">
+    <div class="chart-title">Leads por canal</div>
+    <div class="chart-note">Pas&aacute; el mouse para ver cu&aacute;ntos agendaron</div>
+    ${barrasHTML(canales,{pctSobre:total})}
+  </div>`;
+
+  const tendencia=tendenciaHTML(serieLeads,'Leads por mes','Sobre todo el hist&oacute;rico cargado, sin importar el filtro de per&iacute;odo');
+
+  return kpis+`<div class="charts-row">${tendencia}${embudo}${porCanal}</div>`;
+}
+
 function renderMetricsLeads(rows, allLLCs, allSeguimientos){
   const total=rows.length;
   const calif=rows.filter(r=>(r['Calificaci\u00f3n']||r['Calificacion']||'').toLowerCase().includes('sql calificado')).length;
@@ -448,13 +718,12 @@ function renderMetricsLeads(rows, allLLCs, allSeguimientos){
   const metaAg=metaAll.filter(r=>r['\u00bfAgend\u00f3?']==='S\u00ed').length;
   const metaPct=pct(metaAg,metaAll.length);
 
-  // Funnel: Lead → Agendó → Asistió → SQL → LLC
+  // Funnel: Lead → Agendó → Asistió → SQL → LLC. Mismos numeros que la cabecera:
+  // salen de la misma funcion para que no puedan contradecirse.
   const leadEmails=new Set(rows.map(r=>normEmail(r['Mail'])).filter(Boolean));
-  const asistioCount=allSeguimientos?allSeguimientos.filter(r=>{
-    const m=(r['Estado del Meeting']||'').toLowerCase();
-    return m.includes('asisti')&&!m.includes('no asisti')&&leadEmails.has(normEmail(r['Mail']));
-  }).length:0;
-  const llcCount=allLLCs?allLLCs.filter(r=>leadEmails.has(normEmail(r['Email']))).length:0;
+  const _emb=calcularEmbudo(rows);
+  const asistioCount=_emb[2].valor;
+  const llcCount=enVentana(allLLCs||[],ventanaActual()).length;
 
   // Rendimiento por vendedor (excluir Staff)
   const vendorMap={};
@@ -469,19 +738,23 @@ function renderMetricsLeads(rows, allLLCs, allSeguimientos){
   const vendors=Object.entries(vendorMap).filter(([,d])=>d.total>=2).sort((a,b)=>b[1].total-a[1].total);
 
   // Canal más rentable (conversión a LLC)
+  // Antes era "Lead -> LLC", cruzando mails contra las LLCs. Ese cruce da 1 de 293
+  // porque el lead convertido desaparece del modulo Leads, asi que el porcentaje
+  // que mostraba no significaba nada. Lead -> SQL sale de un solo dataset y
+  // responde la misma pregunta: que canal trae gente que califica.
   let canalRentHTML='';
-  if(allLLCs){
+  {
     const canalConv={};
-    rows.forEach(r=>{const c=r['Canal']||'Otro';if(!canalConv[c])canalConv[c]={leads:0,llcs:0};canalConv[c].leads++});
-    allLLCs.forEach(r=>{
-      const email=normEmail(r['Email']);if(!email)return;
-      const lead=rows.find(l=>normEmail(l['Mail'])===email);
-      if(lead){const c=lead['Canal']||'Otro';if(canalConv[c])canalConv[c].llcs++}
+    rows.forEach(r=>{
+      const c=r['Canal']||'Otro';
+      if(!canalConv[c])canalConv[c]={leads:0,sql:0};
+      canalConv[c].leads++;
+      if((r['Calificaci\u00f3n']||r['Calificacion']||'').toLowerCase().includes('sql calificado'))canalConv[c].sql++;
     });
-    const canales=Object.entries(canalConv).filter(([c,d])=>d.leads>=3&&!isJunkCanal(c)&&d.llcs>0).sort((a,b)=>pct(b[1].llcs,b[1].leads)-pct(a[1].llcs,a[1].leads));
+    const canales=Object.entries(canalConv).filter(([c,d])=>d.leads>=5&&!isJunkCanal(c)).sort((a,b)=>pct(b[1].sql,b[1].leads)-pct(a[1].sql,a[1].leads));
     if(canales.length){
-      canalRentHTML=mSection('l_conv','Conversi\u00f3n por Canal (Lead \u2192 LLC)',`<div class="metrics-grid">
-        ${canales.map(([c,d])=>`<div class="metric-card${pct(d.llcs,d.leads)>=20?' green':pct(d.llcs,d.leads)>=10?' cyan':' gold'}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${pct(d.llcs,d.leads)}%</div><div class="metric-sub">${d.llcs} LLCs de ${d.leads} leads</div></div>`).join('')}
+      canalRentHTML=mSection('l_conv','Conversi\u00f3n por Canal (Lead \u2192 SQL)',`<div class="metrics-grid">
+        ${canales.map(([c,d])=>`<div class="metric-card${pct(d.sql,d.leads)>=15?' green':pct(d.sql,d.leads)>=7?' cyan':' gold'}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${pct(d.sql,d.leads)}%</div><div class="metric-sub">${d.sql} SQL de ${d.leads} leads</div></div>`).join('')}
       </div>`);
     }
   }
@@ -517,6 +790,7 @@ function renderMetricsLeads(rows, allLLCs, allSeguimientos){
   }
 
   return `
+    ${renderCabeceraLeads(rows,allLLCs,allSeguimientos)}
     ${mSection('l_resumen','Resumen',`<div class="metrics-grid">
       <div class="metric-card"><div class="metric-label">Total Leads</div><div class="metric-value">${total}</div></div>
       <div class="metric-card green"><div class="metric-label">SQL Calificados</div><div class="metric-value">${calif}</div></div>
@@ -536,7 +810,7 @@ function renderMetricsLeads(rows, allLLCs, allSeguimientos){
       <div class="metric-card cyan"><div class="metric-label">Agendaron</div><div class="metric-value">${agendo}</div><div class="metric-sub">${tasaAg}% de leads</div></div>
       <div class="metric-card green"><div class="metric-label">Asistieron</div><div class="metric-value">${asistioCount}</div><div class="metric-sub">${pct(asistioCount,agendo)}% de agendados</div></div>
       <div class="metric-card gold"><div class="metric-label">SQL Calificado</div><div class="metric-value">${calif}</div><div class="metric-sub">${pct(calif,asistioCount)}% de asistidos</div></div>
-      <div class="metric-card purple"><div class="metric-label">LLC Abierta</div><div class="metric-value">${llcCount}</div><div class="metric-sub">${pct(llcCount,calif)}% de SQL</div></div>
+      <div class="metric-card purple"><div class="metric-label">LLC Abierta</div><div class="metric-value">${llcCount}</div><div class="metric-sub">del per&iacute;odo, no atadas a estos leads</div></div>
     </div>`)}
     ${renderComparativaMensual(DATA&&DATA.leads)}
     ${canalRentHTML}
