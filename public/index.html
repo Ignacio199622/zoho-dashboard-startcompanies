@@ -123,6 +123,49 @@ tr.alert-row td{background:rgba(201,162,39,.08);border-left:3px solid var(--gold
 tr.alert-row td:first-child{padding-left:12px}
 tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 
+/* ===== LECTURA Y ALERTAS ===== */
+.lectura{background:linear-gradient(135deg,rgba(0,106,254,.10),rgba(1,201,226,.05));border:1px solid var(--border);border-left:3px solid var(--blue);border-radius:var(--radius);padding:16px 20px;margin-bottom:14px}
+.lectura-titulo{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;font-weight:600;margin-bottom:6px}
+.lectura-texto{font-size:15px;line-height:1.65;margin:0}
+.lectura-texto b{color:#fff;font-weight:700}
+.lectura-alerta{color:var(--gold)}
+
+.alertas{margin-bottom:16px}
+.alertas-titulo{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;font-weight:600;margin-bottom:8px}
+.alertas-nota{text-transform:none;letter-spacing:0;font-weight:400;opacity:.75}
+.alertas-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.alerta{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;text-align:left;
+  background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--text2);border-radius:var(--radius);
+  padding:12px 14px;cursor:pointer;font-family:inherit;color:var(--text);transition:all .15s}
+.alerta:hover{border-color:var(--blue);transform:translateY(-1px)}
+.alerta-n{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+.alerta-txt{font-size:11px;color:var(--text2);line-height:1.45}
+.alerta-txt b{font-size:13px;color:var(--text);font-weight:600}
+.alerta-ver{font-size:11px;color:var(--text2);white-space:nowrap}
+.alerta-red{border-left-color:var(--red)}.alerta-red .alerta-n{color:var(--red)}
+.alerta-gold{border-left-color:var(--gold)}.alerta-gold .alerta-n{color:var(--gold)}
+.alerta-cyan{border-left-color:var(--cyan)}.alerta-cyan .alerta-n{color:var(--cyan)}
+
+.comp-table td,.comp-table th{white-space:nowrap}
+.comp-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.comp-mejor td{background:rgba(0,182,122,.10)}
+.comp-mejor td:first-child{box-shadow:inset 3px 0 0 var(--green)}
+.comp-cero td{color:var(--text2)}
+.comp-cero td:first-child{box-shadow:inset 3px 0 0 var(--red)}
+
+.buscador{padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:inherit;font-size:13px;outline:none;min-width:230px;transition:border .2s}
+.buscador:focus{border-color:var(--blue)}
+.buscador::placeholder{color:var(--text2)}
+
+.th-orden{cursor:pointer;user-select:none;transition:color .15s}
+.th-orden:hover{color:var(--text)}
+.th-activa{color:var(--blue)}
+.th-flecha{font-size:9px}
+
+.aviso-filtro{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 24px;background:rgba(201,162,39,.10);border-bottom:1px solid var(--border);font-size:12px;color:var(--gold)}
+.aviso-filtro button{background:none;border:1px solid var(--gold);color:var(--gold);border-radius:6px;padding:3px 10px;font-family:inherit;font-size:11px;cursor:pointer}
+.aviso-filtro button:hover{background:rgba(201,162,39,.18)}
+
 /* ===== KPIs Y GRAFICOS ===== */
 /* Rampa secuencial de un solo tono: la magnitud ya la codifica el largo de la
    barra, el color solo refuerza la progresion. Los 5 pasos estan validados a
@@ -305,6 +348,7 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
           <div class="table-count" id="tableCount"></div>
         </div>
         <div class="export-group">
+          <input class="buscador" id="buscador" type="search" placeholder="Buscar nombre, mail, teléfono..." oninput="onBuscar(this.value)" autocomplete="off">
           <button class="btn-export" onclick="exportCSV()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             CSV
@@ -591,6 +635,166 @@ function mesLargo(k){const p=k.split('-');return MES_CORTO[parseInt(p[1],10)-1]+
   });
 })();
 
+// ===== LECTURA DEL PERIODO =====
+// El panel mostraba cuentas, y con cuentas no se decide nada. Esto arma en texto
+// que paso y donde esta la tension, con reglas explicitas sobre los mismos
+// numeros que se ven abajo. No dice nada que no salga de los datos.
+function esSQL(r){return(r['Calificación']||r['Calificacion']||'').toLowerCase().includes('sql calificado')}
+function diasDesde(fecha){
+  const d=parseDate(fecha);if(!d)return 9999;
+  return Math.floor((Date.now()-d.getTime())/86400000);
+}
+function variacion(actual,previo){
+  if(previo===null||previo===undefined||!previo)return null;
+  return Math.round((actual-previo)/previo*100);
+}
+function frase(v,masEsMejor){
+  if(v===null)return'';
+  if(v===0)return'igual que el período anterior';
+  const dir=v>0?'más':'menos';
+  return`${Math.abs(v)}% ${dir} que el período anterior`;
+}
+
+function lecturaDelPeriodo(rows,allLLCs){
+  if(!rows.length)return'';
+  const prev=ventanaAnterior();
+  // Con "Todo el período" no hay contra qué comparar, pero igual se redacta la
+  // lectura sin variaciones: dejarla vacía era peor que no tener comparación.
+  const pr=prev?enVentana(DATA.leads,prev):[];
+  const hayComparacion=pr.length>0;
+
+  const sql=rows.filter(esSQL).length, pSql=pr.filter(esSQL).length;
+  const ns=rows.filter(r=>r['Estado del meeting']==='No Asistió').length;
+  const pNs=pr.filter(r=>r['Estado del meeting']==='No Asistió').length;
+  const vLeads=hayComparacion?variacion(rows.length,pr.length):null;
+  const vSql=hayComparacion?variacion(sql,pSql):null;
+  const vNs=hayComparacion?variacion(ns,pNs):null;
+
+  const partes=[];
+  partes.push(`Entraron <b>${rows.length} leads</b>${vLeads!==null?', '+frase(vLeads):''}.`);
+
+  // La tension que importa: mas volumen con menos calificados es peor, no mejor.
+  if(vLeads!==null&&vSql!==null&&vLeads>5&&vSql<-5){
+    partes.push(`Pero los <b>SQL bajaron ${Math.abs(vSql)}%</b> (${sql} contra ${pSql}): entra más gente y califica menos.`);
+  }else if(vSql!==null&&vSql>5){
+    partes.push(`Los <b>SQL subieron ${vSql}%</b> (${sql} contra ${pSql}).`);
+  }else{
+    partes.push(`Quedaron <b>${sql} SQL calificados</b>${vSql!==null?', '+frase(vSql):''}.`);
+  }
+
+  if(ns){
+    partes.push(`Hubo <b>${ns} no-shows</b>${vNs!==null?', '+frase(vNs):''}.`);
+  }
+
+  // Canal que califica y canal que trae volumen sin calificar: la decision de
+  // presupuesto sale de comparar esos dos.
+  const porCanal={};
+  rows.forEach(r=>{const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
+    if(!porCanal[c])porCanal[c]={n:0,sql:0};porCanal[c].n++;if(esSQL(r))porCanal[c].sql++});
+  const conVolumen=Object.entries(porCanal).filter(([,v])=>v.n>=20);
+  if(conVolumen.length>=2){
+    const mejor=conVolumen.slice().sort((a,b)=>pct2(b[1].sql,b[1].n)-pct2(a[1].sql,a[1].n))[0];
+    const secos=conVolumen.filter(([,v])=>v.sql===0).sort((a,b)=>b[1].n-a[1].n);
+    if(mejor[1].sql>0){
+      partes.push(`El canal que más califica es <b>${esc(mejor[0])}</b> (${mejor[1].sql} SQL de ${mejor[1].n} leads, ${pct2(mejor[1].sql,mejor[1].n)}%).`);
+    }
+    if(secos.length){
+      const lista=secos.slice(0,2).map(([c,v])=>`${esc(c)} (${v.n})`).join(' y ');
+      partes.push(`<span class="lectura-alerta">${lista} ${secos.length>1||secos[0][1].n>1?'trajeron':'trajo'} volumen y <b>ningún SQL</b>.</span>`);
+    }
+  }
+
+  return`<div class="lectura">
+    <div class="lectura-titulo">Lectura del período</div>
+    <p class="lectura-texto">${partes.join(' ')}</p>
+  </div>`;
+}
+
+// ===== ALERTAS ACCIONABLES =====
+// Cada una es una cosa que alguien tiene que hacer, con su lista detras: al
+// clickearla filtra la tabla y te deja los registros exactos.
+const ALERTAS=[
+  {id:'sql_sin_dueno',tab:'leads',tono:'red',
+   titulo:'SQL sin vendedor asignado',accion:'Leads calificados que no tiene nadie. Asignalos.',
+   test:r=>esSQL(r)&&r['Vendedor asignado']===OWNER_GENERICO},
+  {id:'llc_trabada',tab:'llcs',tono:'red',
+   titulo:'Aperturas trabadas hace +30 días',accion:'En documentación o filing, sin avanzar.',
+   test:r=>{const e=(r['Etapa']||'').toLowerCase();
+     return(e.includes('filing')||e.includes('documentaci'))&&diasDesde(r['Fecha'])>30}},
+  {id:'noshow_reciente',tab:'leads',tono:'gold',
+   titulo:'No asistieron en los últimos 14 días',accion:'Reagendá antes de que se enfríen.',
+   test:r=>r['Estado del meeting']==='No Asistió'&&diasDesde(r['Fecha'])<=14},
+  {id:'meeting_sin_estado',tab:'leads',tono:'gold',
+   titulo:'Meetings sin resultado cargado',accion:'El vendedor no marcó si asistió. Últimos 14 días.',
+   test:r=>r['¿Agendó?']==='Sí'&&r['Estado del meeting']==='Sin información'&&diasDesde(r['Fecha'])<=14},
+  {id:'seg_sql',tab:'seguimientos',tono:'cyan',
+   titulo:'Seguimientos marcados SQL',accion:'Calificados esperando cierre.',
+   test:r=>(r['Estatus del Lead']||'').toLowerCase().includes('sql calificado')}
+];
+
+function datasetDe(tab){
+  if(!DATA)return[];
+  return tab==='leads'?DATA.leads:tab==='llcs'?DATA.llcs:DATA.seguimientos;
+}
+
+// Las alertas miran TODO el histórico cargado, no el período elegido: son cosas
+// pendientes, no una foto del mes.
+function renderAlertas(){
+  const vivas=ALERTAS.map(a=>({a,n:datasetDe(a.tab).filter(a.test).length})).filter(x=>x.n>0);
+  if(!vivas.length)return'';
+  return`<div class="alertas">
+    <div class="alertas-titulo">Qué revisar <span class="alertas-nota">sobre todo el histórico, no sobre el período</span></div>
+    <div class="alertas-grid">
+      ${vivas.map(({a,n})=>`<button class="alerta alerta-${a.tono}" onclick="abrirAlerta('${a.id}')">
+        <span class="alerta-n">${n}</span>
+        <span class="alerta-txt"><b>${esc(a.titulo)}</b><br>${esc(a.accion)}</span>
+        <span class="alerta-ver">Ver &rsaquo;</span>
+      </button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function abrirAlerta(id){
+  const a=ALERTAS.find(x=>x.id===id);if(!a)return;
+  currentTab=a.tab;
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',TABS[i]===a.tab));
+  filters={alerta:id,periodo:'todo'};   // sin período, para que no esconda filas
+  updateMetrics();buildFilters();renderTable();
+  const el=document.querySelector('.table-wrap');
+  if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// ===== COMPARADOR DE CANALES =====
+// La tabla con la que se decide presupuesto: volumen contra calidad, lado a lado.
+function comparadorCanales(rows){
+  const m={};
+  rows.forEach(r=>{
+    const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
+    if(!m[c])m[c]={n:0,sql:0,ns:0,meet:0};
+    m[c].n++;
+    if(esSQL(r))m[c].sql++;
+    if(r['Estado del meeting']==='No Asistió'){m[c].ns++;m[c].meet++}
+    else if(r['Estado del meeting']==='Asistió')m[c].meet++;
+  });
+  const filas=Object.entries(m).filter(([,v])=>v.n>=5).sort((a,b)=>b[1].n-a[1].n);
+  if(!filas.length)return'';
+  const maxSql=Math.max(...filas.map(([,v])=>pct2(v.sql,v.n)));
+  return`<div class="chart-card">
+    <div class="chart-title">Comparador de canales</div>
+    <div class="chart-note">Volumen contra calidad. Canales con 5 leads o más en el período.</div>
+    <div class="table-scroll"><table class="comp-table"><thead><tr>
+      <th>Canal</th><th class="num">Leads</th><th class="num">SQL</th><th class="num">% SQL</th><th class="num">No-show</th>
+    </tr></thead><tbody>
+    ${filas.map(([c,v])=>{
+      const p=pct2(v.sql,v.n);
+      const cl=v.sql===0?'comp-cero':p>=maxSql&&maxSql>0?'comp-mejor':'';
+      return`<tr class="${cl}"><td>${esc(c)}</td><td class="num">${v.n}</td><td class="num">${v.sql}</td>
+        <td class="num"><b>${p}%</b></td><td class="num">${v.meet?pct2(v.ns,v.meet)+'%':'—'}</td></tr>`;
+    }).join('')}
+    </tbody></table></div>
+  </div>`;
+}
+
 // ===== METRICS =====
 // Month-over-month view. Always computed over the FULL leads dataset (not the
 // active period filter), so it stays comparable no matter what is selected.
@@ -703,7 +907,9 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
   // veria literal ("hist&oacute;rico").
   const tendencia=tendenciaHTML(serieLeads,'Leads por mes','Sobre todo el histórico cargado, sin importar el filtro de período');
 
-  return kpis+`<div class="charts-row">${tendencia}${embudo}${porCanal}</div>`;
+  return lecturaDelPeriodo(rows,allLLCs)+renderAlertas()+kpis+
+    `<div class="charts-row">${tendencia}${embudo}${porCanal}</div>`+
+    `<div class="charts-row">${comparadorCanales(rows)}</div>`;
 }
 
 function renderMetricsLeads(rows, allLLCs, allSeguimientos){
@@ -1132,9 +1338,28 @@ function matchesDateRange(dateStr){
   return true;
 }
 
+// Texto libre sobre todas las columnas visibles: buscar a alguien por nombre,
+// mail o telefono era imposible en una tabla de 1900 filas sin buscador.
+function coincideBusqueda(r){
+  const q=(filters.q||'').trim().toLowerCase();
+  if(!q)return true;
+  return Object.values(r).some(v=>String(v==null?'':v).toLowerCase().includes(q));
+}
+function coincideAlerta(r){
+  if(!filters.alerta)return true;
+  const a=ALERTAS.find(x=>x.id===filters.alerta);
+  return a?a.test(r):true;
+}
+
 function getFilteredRows(){
   if(!DATA)return[];
   if(currentTab==='calidad')return[];   // la solapa de calidad no es una tabla de registros
+  const rows=getFilteredRowsBase();
+  const filtradas=rows.filter(r=>coincideAlerta(r)&&coincideBusqueda(r));
+  return ordenarFilas(filtradas);
+}
+
+function getFilteredRowsBase(){
   if(currentTab==='leads'){
     return DATA.leads.filter(r=>{
       if(!matchesMulti(r['Canal'],'canal'))return false;
@@ -1161,12 +1386,49 @@ function getFilteredRows(){
   }
 }
 
+// ===== ORDEN =====
+// Sin esto no se podia ordenar por nada: la tabla salia siempre en el orden en
+// que venia del CRM.
+let orden={col:null,dir:1};
+const COLS_FECHA=['Fecha','Fecha \u00faltimo meeting'];
+function ordenarPor(col){
+  if(orden.col===col)orden.dir=-orden.dir;
+  else{orden={col:col,dir:1}}
+  renderTable();
+}
+function ordenarFilas(rows){
+  if(!orden.col)return rows;
+  const col=orden.col,dir=orden.dir;
+  const esFecha=COLS_FECHA.includes(col);
+  return rows.slice().sort((a,b)=>{
+    let x=a[col],y=b[col];
+    if(esFecha){
+      const dx=parseDate(x),dy=parseDate(y);
+      return((dx?dx.getTime():0)-(dy?dy.getTime():0))*dir;
+    }
+    const nx=parseFloat(x),ny=parseFloat(y);
+    if(!isNaN(nx)&&!isNaN(ny)&&String(x).trim()!==''&&String(y).trim()!=='')return(nx-ny)*dir;
+    return String(x==null?'':x).localeCompare(String(y==null?'':y),'es',{sensitivity:'base'})*dir;
+  });
+}
+function th(col,titulo){
+  const activa=orden.col===col;
+  const flecha=activa?(orden.dir>0?' \u25b2':' \u25bc'):'';
+  return`<th class="th-orden${activa?' th-activa':''}" onclick="ordenarPor('${col.replace(/'/g,"\\'")}')" title="Ordenar por ${esc(titulo)}">${esc(titulo)}<span class="th-flecha">${flecha}</span></th>`;
+}
+
+function onBuscar(v){
+  filters.q=v;
+  clearTimeout(onBuscar._t);
+  onBuscar._t=setTimeout(()=>{updateMetrics();renderTable()},180);
+}
+
 // ===== RENDER TABLES =====
 function renderLeads(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
-    <th></th><th>Fecha</th><th>Servicio</th><th>Nombre</th><th>Canal</th><th>Landing Origen</th><th>Calificaci\u00f3n</th>
-    <th>Tel\u00e9fono</th><th>Mail</th><th>Agend\u00f3?</th><th>Retargeting</th><th>Modalidad de cierre</th><th>Vendedor</th>
+    <th></th>${th('Fecha','Fecha')}${th('Servicio','Servicio')}${th('Nombre y Apellido','Nombre')}${th('Canal','Canal')}${th('Landing Origen','Landing Origen')}${th('Calificaci\u00f3n','Calificaci\u00f3n')}
+    <th>Tel\u00e9fono</th>${th('Mail','Mail')}${th('\u00bfAgend\u00f3?','Agend\u00f3?')}${th('Retargeting','Retargeting')}${th('Modalidad de cierre','Modalidad de cierre')}${th('Vendedor asignado','Vendedor')}
   </tr></thead><tbody>${rows.map(r=>{const nk='lead_'+(normEmail(r['Mail'])||esc(r['Nombre y Apellido']));return `<tr>
     <td>${noteBtn(nk,r['Nombre y Apellido']||'Lead')}</td>
     <td>${esc(r['Fecha'])}</td>
@@ -1187,8 +1449,8 @@ function renderLeads(rows){
 function renderLLCs(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
-    <th></th><th>Fecha</th><th>LLC</th><th>Etapa</th><th>Nombre</th><th>Email</th>
-    <th>Tel\u00e9fono</th><th>Canal</th><th>Vendedor</th><th>Pago</th>
+    <th></th>${th('Fecha','Fecha')}${th('LLC','LLC')}${th('Etapa','Etapa')}${th('Nombre','Nombre')}${th('Email','Email')}
+    <th>Tel\u00e9fono</th>${th('Canal de Origen','Canal')}${th('Vendedor','Vendedor')}${th('Confirmaci\u00f3n de pago','Pago')}
   </tr></thead><tbody>${rows.map(r=>{const nk='llc_'+(normEmail(r['Email'])||esc(r['LLC']));return `<tr>
     <td>${noteBtn(nk,r['LLC']||'LLC')}</td>
     <td>${esc(r['Fecha'])}</td>
@@ -1206,8 +1468,8 @@ function renderLLCs(rows){
 function renderSeguimientos(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
-    <th></th><th>Fecha</th><th>Nombre</th><th>Mail</th><th>Estatus</th>
-    <th>Vendedor</th><th>Canal</th><th>Meeting</th><th>Descripci\u00f3n</th>
+    <th></th>${th('Fecha \u00faltimo meeting','Fecha')}${th('Nombre','Nombre')}${th('Mail','Mail')}${th('Estatus del Lead','Estatus')}
+    ${th('Vendedor','Vendedor')}${th('Canal de Origen','Canal')}${th('Estado del Meeting','Meeting')}<th>Descripci\u00f3n</th>
   </tr></thead><tbody>${rows.map(r=>{
     const isSQL=(r['Estatus del Lead']||'').toLowerCase().includes('sql calificado');
     const nk='seg_'+(normEmail(r['Mail'])||(esc(r['Nombre'])+esc(r['Apellido'])));
@@ -1272,14 +1534,32 @@ function renderTable(){
   const rows=getFilteredRows();
   document.getElementById('tableTitle').textContent=TITLES[currentTab];
   document.getElementById('tableCount').textContent=currentTab==='calidad'?'':rows.length+' registros';
+  const buscador=document.getElementById('buscador');
+  if(buscador){
+    buscador.style.display=currentTab==='calidad'?'none':'';
+    if(buscador.value!==(filters.q||''))buscador.value=filters.q||'';
+  }
+  // Si llegaste acá clickeando una alerta, la tabla está recortada: decilo y dejá
+  // salir de un clic, si no parece que faltan registros.
+  let aviso='';
+  if(filters.alerta){
+    const a=ALERTAS.find(x=>x.id===filters.alerta);
+    if(a)aviso=`<div class="aviso-filtro">Mostrando solo: <b>${esc(a.titulo)}</b>
+      <button onclick="quitarAlerta()">Ver todo de nuevo</button></div>`;
+  }
   if(currentTab==='calidad')el.innerHTML=renderCalidad();
-  else if(currentTab==='leads')el.innerHTML=renderLeads(rows);
-  else if(currentTab==='llcs')el.innerHTML=renderLLCs(rows);
-  else el.innerHTML=renderSeguimientos(rows);
+  else if(currentTab==='leads')el.innerHTML=aviso+renderLeads(rows);
+  else if(currentTab==='llcs')el.innerHTML=aviso+renderLLCs(rows);
+  else el.innerHTML=aviso+renderSeguimientos(rows);
+}
+
+function quitarAlerta(){
+  delete filters.alerta;
+  updateMetrics();renderTable();
 }
 
 function switchTab(tab){
-  currentTab=tab;filters={};applyPeriodo(defaultPeriodo(tab));
+  currentTab=tab;filters={};orden={col:null,dir:1};applyPeriodo(defaultPeriodo(tab));
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',TABS[i]===tab));
   updateMetrics();buildFilters();renderTable();
 }
