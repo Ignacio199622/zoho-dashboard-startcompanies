@@ -1,4 +1,5 @@
 const https = require('https');
+const { cabeceras, exigirAuth } = require('../lib/auth');
 
 /*
  * zoho-data.js — Dashboard data source for Start Companies metrics panel.
@@ -465,15 +466,16 @@ function esRegistroReal(row) {
 }
 
 exports.handler = async (event) => {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Content-Type': 'application/json'
-  };
+  const headers = cabeceras(event.headers);
 
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
+
+  // This payload carries names, emails and phones of every lead: it does not
+  // leave the function without a valid token.
+  const rechazo = exigirAuth(event.headers, headers);
+  if (rechazo) return rechazo;
 
   try {
     if (cache && (Date.now() - cacheTimestamp) < CACHE_TTL) {

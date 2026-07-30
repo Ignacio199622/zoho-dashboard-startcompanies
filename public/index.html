@@ -208,7 +208,7 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
     <div class="login-title">Dashboard</div>
     <div class="login-sub">Ingresa tus credenciales para acceder</div>
     <form onsubmit="handleLogin(event)">
-      <input class="login-input" type="text" id="loginUser" placeholder="Usuario" autocomplete="username" required>
+      <input class="login-input" type="text" id="loginUser" placeholder="Tu nombre" autocomplete="username" required>
       <input class="login-input" type="password" id="loginPass" placeholder="Contrasena" autocomplete="current-password" required>
       <button class="login-btn" type="submit">Iniciar Sesion</button>
     </form>
@@ -294,39 +294,59 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 
 <script>
 // ===== AUTH =====
-const USERS = {
-  tomas: 'd47edf81eaadf9bdd466903719e772e1846bc2f69eeb2cadb29780aa639eabea',
-  belen: 'd47edf81eaadf9bdd466903719e772e1846bc2f69eeb2cadb29780aa639eabea',
-  ignacio: 'd47edf81eaadf9bdd466903719e772e1846bc2f69eeb2cadb29780aa639eabea',
-  santiago: 'd47edf81eaadf9bdd466903719e772e1846bc2f69eeb2cadb29780aa639eabea',
-  ignaciocampo: 'd47edf81eaadf9bdd466903719e772e1846bc2f69eeb2cadb29780aa639eabea'
-};
-async function sha256(str){const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('')}
+// La validacion de la clave pasa en el servidor (netlify/functions/auth.js).
+// Antes esta pagina traia la tabla de hashes y decidia sola si mostrar el panel,
+// mientras los endpoints de datos no pedian nada: la base se bajaba con un curl.
+// El nombre es solo para firmar las notas, no es una credencial.
+let TOKEN=null;
+
 async function handleLogin(e){
   e.preventDefault();
-  const user=document.getElementById('loginUser').value.trim().toLowerCase();
+  const err=document.getElementById('loginError');
+  const user=document.getElementById('loginUser').value.trim();
   const pass=document.getElementById('loginPass').value;
-  const hash=await sha256(pass);
-  if(USERS[user]&&USERS[user]===hash){
-    const expires=Date.now()+30*24*60*60*1000;
-    localStorage.setItem('sc_user',JSON.stringify({user,expires}));
+  if(!user){err.textContent='Pone tu nombre';return}
+  err.textContent='Verificando...';
+  try{
+    const r=await fetch('/.netlify/functions/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pass})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){err.textContent=j.error||'Contrasena incorrecta';return}
+    TOKEN=j.token;
+    localStorage.setItem('sc_user',JSON.stringify({user,token:j.token,expires:Date.now()+(j.expiraEn||0)}));
+    err.textContent='';
     showDashboard(user);
-  } else{document.getElementById('loginError').textContent='Usuario o contrasena incorrectos'}
+  }catch(ex){err.textContent='No se pudo conectar: '+ex.message}
 }
-function handleLogout(){localStorage.removeItem('sc_user');location.reload()}
+
+function handleLogout(){localStorage.removeItem('sc_user');TOKEN=null;location.reload()}
+
 function showDashboard(user){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('dashboardApp').style.display='block';
   document.getElementById('userBadge').textContent=user;
   fetchData();
 }
+
+// Sesion caida o token vencido: volver al login en vez de mostrar una pantalla vacia.
+function sesionVencida(msg){
+  localStorage.removeItem('sc_user');TOKEN=null;
+  document.getElementById('dashboardApp').style.display='none';
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('loginError').textContent=msg||'Tu sesion vencio, volve a entrar';
+}
+
+function authHeaders(extra){
+  return Object.assign({'Authorization':'Bearer '+(TOKEN||'')},extra||{});
+}
+
 (function(){
   try{
     const raw=localStorage.getItem('sc_user');
     if(!raw)return;
-    const{user,expires}=JSON.parse(raw);
-    if(Date.now()>expires){localStorage.removeItem('sc_user');return}
-    if(USERS[user])showDashboard(user);
+    const s=JSON.parse(raw);
+    if(!s.token||Date.now()>s.expires){localStorage.removeItem('sc_user');return}
+    TOKEN=s.token;
+    showDashboard(s.user);
   }catch(e){localStorage.removeItem('sc_user')}
 })();
 
@@ -1037,8 +1057,12 @@ async function fetchData(){
   const btn=document.getElementById('btnRefresh');
   if(btn)btn.disabled=true;
   try{
-    const res=await fetch('/.netlify/functions/zoho-data');
-    if(!res.ok)throw new Error('HTTP '+res.status);
+    const res=await fetch('/.netlify/functions/zoho-data',{headers:authHeaders()});
+    if(res.status===401){sesionVencida();return}
+    if(!res.ok){
+      const j=await res.json().catch(()=>({}));
+      throw new Error(j.error||('HTTP '+res.status));
+    }
     DATA=await res.json();if(DATA.error)throw new Error(DATA.error);
     // Filter out TimelinesAI junk entries
     DATA.leads=DATA.leads.filter(r=>{
@@ -1071,7 +1095,13 @@ let NOTES={};
 let currentNoteKey='';
 
 async function loadNotes(){
-  try{const r=await fetch('/.netlify/functions/notes');if(r.ok)NOTES=await r.json()}catch(e){}
+  try{
+    const r=await fetch('/.netlify/functions/notes',{headers:authHeaders()});
+    if(r.ok){NOTES=await r.json();return}
+    // Fallaba en silencio: las notas estaban rotas en produccion y nadie lo sabia.
+    const j=await r.json().catch(()=>({}));
+    showError('No se pudieron cargar las notas: '+(j.error||('HTTP '+r.status)));
+  }catch(e){showError('No se pudieron cargar las notas: '+e.message)}
 }
 
 function noteBtn(key,label){
@@ -1098,11 +1128,15 @@ async function saveNote(){
   let userName='';
   try{userName=JSON.parse(user).user||user}catch(e){userName=user}
   try{
-    const r=await fetch('/.netlify/functions/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:currentNoteKey,text,user:userName})});
+    const r=await fetch('/.netlify/functions/notes',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({key:currentNoteKey,text,user:userName})});
     if(r.ok){
       if(!text.trim()){delete NOTES[currentNoteKey]}
       else{NOTES[currentNoteKey]=await r.json()}
       renderTable();
+    }else{
+      // Antes esto se descartaba: el modal se cerraba como si hubiera guardado.
+      const j=await r.json().catch(()=>({}));
+      showError('No se pudo guardar la nota: '+(j.error||('HTTP '+r.status)));
     }
   }catch(e){showError('Error guardando nota: '+e.message)}
   closeNote();
