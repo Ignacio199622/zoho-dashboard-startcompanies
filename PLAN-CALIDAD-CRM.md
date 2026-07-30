@@ -98,6 +98,50 @@ dice "Sin dato" donde no hay dato.
 
 ---
 
+## 1.6 El lead que agenda entra como un registro NUEVO — **el problema más grave**
+
+Descubierto el 2026-07-30 al mirar por qué el embudo daba raro. La tasa de agendamiento por
+canal, sobre los últimos 6 meses:
+
+| Canal | Leads | "Agendaron" | % |
+|---|---|---|---|
+| WhatsApp | 719 | 1 | **0%** |
+| Meta Ads | 535 | 7 | **1%** |
+| Landing Page | 466 | 457 | **98%** |
+| Web Orgánica | 131 | 131 | **100%** |
+| Marca Personal | 22 | 22 | **100%** |
+
+Ningún canal cae en el medio: o es 0% o es 100%. Eso no es una tasa de conversión, es una
+clasificación. Lo que está pasando es que **cuando alguien agenda se crea un lead nuevo** con
+`Lead_Source` = Landing Page o Web Orgánica, en vez de marcar el agendamiento sobre el lead
+original que entró por WhatsApp o por Meta.
+
+La prueba: hay **87 teléfonos repetidos** en el CRM, y en **52 casos** el mismo teléfono aparece
+una vez en un canal de entrada y otra en un canal de agenda. Por ejemplo:
+
+```
+WhatsApp (13-feb, agendó=No)   ||   Landing Page (12-feb, agendó=Sí)
+WhatsApp (27-jun, agendó=No)   ||   Landing Page (27-jun, agendó=Sí)
+WhatsApp (14-jul, agendó=No)   ||   Web Orgánica  (28-jun, agendó=Sí)
+```
+
+Consecuencias, todas graves:
+- **El total de leads está inflado**: una misma persona se cuenta dos veces.
+- **La tasa de agendamiento no significa nada**: mide qué porcentaje de los registros nació de
+  una reserva, no cuánta gente agendó.
+- **La atribución se rompe**: la llamada queda anotada contra "Landing Page" aunque la persona
+  haya venido de un anuncio de Meta. Cualquier decisión de presupuesto basada en esto está mal.
+- Ningún mail se repite (0 duplicados por mail) porque los registros de WhatsApp no traen mail:
+  el único campo que los une es el teléfono.
+
+**Qué hacer**
+- Regla de deduplicación por teléfono al crear leads (Zoho la soporta de fábrica).
+- Que el flujo de reserva **busque el lead por teléfono y lo actualice** en vez de crear uno nuevo.
+- Mientras tanto, el panel muestra una advertencia en el embudo para que nadie lea ese número
+  como si fuera una conversión.
+
+Este punto va **antes** que todos los demás: sin esto, ni siquiera el conteo de leads es correcto.
+
 ## 2. Higiene del picklist de canales
 
 `Lead_Source` tiene el mismo canal escrito de varias formas y valores que no son canales:
@@ -151,6 +195,7 @@ Poner la fecha de corte antes de tapar los agujeros solo cambia la fecha de los 
 
 | # | Acción | Dónde | Impacto |
 |---|---|---|---|
+| 0 | **Deduplicar por teléfono y que la reserva actualice el lead en vez de crear otro** (§1.6) | Zoho | Sin esto ni el conteo de leads es correcto |
 | 1 | Borrar registros de prueba | Zoho | Bajo esfuerzo, saca ruido ya |
 | 2 | Workflow Lead → Deal que copie `Owner` a `Quien_lo_vendio` | Zoho | Desbloquea métricas por vendedor |
 | 3 | Averiguar qué rompió `Pago` en febrero y reponerlo | Zoho | Desbloquea métricas de facturación |

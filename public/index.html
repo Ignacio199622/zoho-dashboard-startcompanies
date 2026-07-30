@@ -664,7 +664,7 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
 
   const kpis=`<div class="kpi-row">
     ${kpiTile('Leads',total,'en el per&iacute;odo elegido',deltaHTML(total,pTotal),serieLeads)}
-    ${kpiTile('Tasa de agendamiento',tasa+'%',agendo+' de '+total+' agendaron',deltaHTML(tasa,pAgendoTasa),null)}
+    ${kpiTile('Tasa de agendamiento',tasa+'%','⚠ '+agendo+' de '+total+'. Ver la nota del embudo',deltaHTML(tasa,pAgendoTasa),null)}
     ${kpiTile('Asistieron',asistio,pct(asistio,agendo)+'% de los que agendaron',deltaHTML(asistio,pAsistio),serieAsistio)}
     ${kpiTile('SQL Calificados',sql,pct(sql,total)+'% de los leads',deltaHTML(sql,pSql),serieSQL)}
     ${kpiTile('LLCs abiertas',llc,'en el per&iacute;odo, medidas aparte',deltaHTML(llc,pLlc),serieLLC)}
@@ -679,7 +679,8 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
   }));
   const embudo=`<div class="chart-card">
     <div class="chart-title">Embudo</div>
-    <div class="chart-note">Cada barra, sobre el total de leads. Llega hasta SQL: el paso a LLC no se puede medir porque Zoho saca al lead del m&oacute;dulo cuando se convierte</div>
+    <div class="chart-note">Cada barra, sobre el total de leads. Llega hasta SQL porque Zoho saca al lead del m&oacute;dulo cuando se convierte en LLC.<br>
+    <span style="color:var(--gold)">&#9888; &laquo;Agendaron&raquo; todav&iacute;a no es una conversi&oacute;n real: quien agenda entra como un registro nuevo (Landing Page / Web Org&aacute;nica) en vez de marcarse sobre su lead de WhatsApp o Meta. Por eso los canales dan 0% o 100% y nunca algo en el medio.</span></div>
     ${barrasHTML(embudoItems,{rampa:true,pctSobre:total})}
   </div>`;
 
