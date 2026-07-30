@@ -512,8 +512,91 @@ async function buildLeads(token) {
       };
     });
 
+  // Seguimientos salía de una vista de Analytics que sincroniza sola y se quedó
+  // clavada el 24-jul: 38 meetings de los últimos 4 días hábiles no aparecían.
+  // Se arma acá con los mismos datos en vivo, y de paso el canal sale de la
+  // atribución nueva en lugar del genérico "Landing Page".
+  const seguimientos = enVentana.map(l => {
+    const evs = evById[l.id] || [];
+    const ultimo = evs.slice().sort((a, b) =>
+      new Date(b.Start_DateTime || b.Created_Time) - new Date(a.Start_DateTime || a.Created_Time))[0];
+    const primero = evs.slice().sort((a, b) =>
+      new Date(a.Start_DateTime || a.Created_Time) - new Date(b.Start_DateTime || b.Created_Time))[0];
+    const atr = atribuir(l, primero);
+    return {
+      // Sin meeting cae la fecha de alta del lead, que es cuándo entró a la lista.
+      'Fecha último meeting': fmtDate((ultimo && (ultimo.Start_DateTime || ultimo.Created_Time)) || l.Created_Time),
+      'Nombre': l.First_Name || l.Full_Name || '',
+      'Apellido': l.First_Name ? (l.Last_Name || '') : '',
+      'Mail': l.Email || '',
+      'Descripción': l.Description || '',
+      'Estatus del Lead': l.Lead_Status || SIN_DATO,
+      'Vendedor': (l.Owner && l.Owner.name) || '',
+      'Canal de Origen': atr.canal || deriveCanal(l),
+      'Estado del Meeting': meetingState(evs),
+      'Modalidad de Cierre': valorReal(l.Modalidad_de_Cierre)
+    };
+  }).sort((a, b) => new Date(b['Fecha último meeting']) - new Date(a['Fecha último meeting']));
+
   // `raw` feeds the data-quality tab; the dashboard itself only uses `rows`.
-  return { rows, raw: enVentana };
+  return { rows, raw: enVentana, seguimientos };
+}
+
+// ---------------------------------------------------------------------------
+// LLCs desde el CRM
+//
+// Misma historia que Seguimientos: la vista de Analytics quedó al 22-jul. Las
+// filas y todas las columnas operativas salen ahora de Deals + Contacts en vivo.
+// El "Canal de Origen" es lo único que no se puede reconstruir (al convertirse,
+// Zoho saca al lead del módulo y se pierde el vínculo), así que se completa
+// contra la vista vieja cuando el mail coincide y si no queda "Sin dato".
+// ---------------------------------------------------------------------------
+async function buildLLCs(token, deals, canalPorMail) {
+  // Los contactos traen mail y teléfono; se piden por páginas hasta cubrir los
+  // que referencian estos deals, con tope para no colgar la función.
+  const necesarios = new Set(deals.map(d => d.Contact_Name && d.Contact_Name.id).filter(Boolean));
+  const contactos = {};
+  const campos = ['Full_Name', 'Email', 'Phone', 'Mobile', 'Created_Time'].join(',');
+  // En lotes paralelos, igual que el resto: secuencial sumaba ~6s a la respuesta.
+  const LOTE = 5;
+  for (let page = 1; page <= 21 && necesarios.size > 0; page += LOTE) {
+    const nums = [];
+    for (let i = 0; i < LOTE; i++) nums.push(page + i);
+    const paginas = await Promise.all(nums.map(p => crmGetPage(token, 'Contacts', campos, p)));
+    let fin = false;
+    for (const json of paginas) {
+      if (!json) { fin = true; break; }
+      json.data.forEach(c => { if (necesarios.has(c.id)) { contactos[c.id] = c; necesarios.delete(c.id); } });
+      if (!json.info || !json.info.more_records) { fin = true; break; }
+    }
+    if (fin) break;
+  }
+
+  const pagoTexto = d => {
+    if (d.Medios_de_pago && d.Medios_de_pago.length) return d.Medios_de_pago.join(', ');
+    if (d.Pago) return d.Pago;
+    return 'Sin pago';
+  };
+
+  return deals
+    .filter(d => (d.Type || '').toLowerCase().indexOf('apertura') === 0 || !d.Type)
+    .map(d => {
+      const c = (d.Contact_Name && contactos[d.Contact_Name.id]) || {};
+      const mail = c.Email || '';
+      return {
+        'Fecha': fmtDate(d.Created_Time),
+        'LLC': (d.Account_Name && d.Account_Name.name) || d.Deal_Name || '',
+        'Etapa': d.Stage || SIN_DATO,
+        'Nombre': (d.Contact_Name && d.Contact_Name.name) || c.Full_Name || '',
+        'Email': mail,
+        'Teléfono': c.Mobile || c.Phone || d.Tel_fono || '',
+        'Canal de Origen': canalPorMail[mail.trim().toLowerCase()] || SIN_DATO,
+        'Vendedor': (d.Quien_lo_vendio && d.Quien_lo_vendio.name) || (d.Owner && d.Owner.name) || '',
+        'Confirmación de pago': pagoTexto(d)
+      };
+    })
+    .filter(esRegistroReal)
+    .sort((a, b) => new Date(b.Fecha) - new Date(a.Fecha));
 }
 
 // ---------------------------------------------------------------------------
@@ -539,7 +622,8 @@ const CALIDAD_LEADS = [
 ];
 
 const DEAL_FIELDS = ['Created_Time', 'Deal_Name', 'Stage', 'Quien_lo_vendio', 'Landing_Origen',
-  'Pago', 'Medios_de_pago', 'Producto', 'Estado_de_Registro', 'Fecha_de_constituci_n'];
+  'Pago', 'Medios_de_pago', 'Producto', 'Estado_de_Registro', 'Fecha_de_constituci_n',
+  'Type', 'Account_Name', 'Contact_Name', 'Tel_fono', 'Owner'];
 
 const CALIDAD_DEALS = [
   { key: 'Quien_lo_vendio', label: '¿Quién lo vendió?' },
@@ -628,12 +712,15 @@ function esLeadReal(l) {
 // Cuánto hace que no llega un registro nuevo a cada dataset. Las vistas de
 // Analytics sincronizan por su cuenta y se atrasan sin avisar; sin esto el panel
 // muestra datos viejos como si fueran de hoy.
+// Ojo con las reuniones agendadas a futuro: si se cuentan, el dataset parece
+// fresquísimo (había un meeting al 2-nov) y el aviso de atraso nunca saltaría.
 function ultimaFecha(rows, campo) {
+  const ahora = Date.now();
   let max = null;
   rows.forEach(r => {
     const raw = r[campo] || r['Fecha'];
     const d = raw ? new Date(raw) : null;
-    if (d && !isNaN(d) && (!max || d > max)) max = d;
+    if (d && !isNaN(d) && d.getTime() <= ahora && (!max || d > max)) max = d;
   });
   return max ? max.toISOString() : null;
 }
@@ -659,14 +746,29 @@ exports.handler = async (event) => {
 
     const since = leadsWindowStart();
 
-    const [leadsData, llcsRaw, seguimientos, deals] = await Promise.all([
-      buildLeads(token),                         // CRM-derived (view deleted)
-      exportView(token, LLCS_VIEW_ID),           // surviving Analytics view
-      exportView(token, SEGUIMIENTOS_VIEW_ID),   // surviving Analytics view
-      crmGetSince(token, 'Deals', DEAL_FIELDS.join(','), since)  // only for the quality tab
+    // Todo sale del CRM en vivo. La vista de LLCs se sigue leyendo pero SOLO para
+    // rescatar el "Canal de Origen" histórico: si falla o se atrasa, el resto del
+    // panel no se entera. Antes las filas mismas venían de ahí y por eso faltaban
+    // 4 días hábiles de datos sin ninguna señal.
+    // Las LLCs se miran hacia atrás mucho más que los leads: una apertura de hace
+    // un año sigue siendo un cliente. La vista vieja traía desde may-2025, así que
+    // se pide una ventana larga para no perder ese histórico.
+    const desdeLLCs = new Date(since.getTime() - 18 * 30 * 24 * 60 * 60 * 1000);
+
+    const [leadsData, deals, vistaLLCs] = await Promise.all([
+      buildLeads(token),
+      crmGetSince(token, 'Deals', DEAL_FIELDS.join(','), desdeLLCs),
+      exportView(token, LLCS_VIEW_ID).catch(() => [])
     ]);
 
-    const llcs = llcsRaw.filter(esRegistroReal);
+    const canalPorMail = {};
+    vistaLLCs.forEach(r => {
+      const m = String(r['Email'] || '').trim().toLowerCase();
+      const c = r['Canal de Origen'];
+      if (m && c) canalPorMail[m] = c;
+    });
+
+    const [llcs, seguimientos] = [await buildLLCs(token, deals, canalPorMail), leadsData.seguimientos];
 
     const body = JSON.stringify({
       timestamp: new Date().toISOString(),
@@ -685,7 +787,9 @@ exports.handler = async (event) => {
       calidad: {
         desde: since.toISOString(),
         leads: { campos: CALIDAD_LEADS.map(c => c.label), meses: completitud(leadsData.raw, CALIDAD_LEADS) },
-        llcs: { campos: CALIDAD_DEALS.map(c => c.label), meses: completitud(deals, CALIDAD_DEALS) }
+        // La matriz de calidad se queda en la ventana de leads aunque los Deals se
+        // traigan desde mucho antes, para que las dos tablas sean comparables.
+        llcs: { campos: CALIDAD_DEALS.map(c => c.label), meses: completitud(deals.filter(d => new Date(d.Created_Time) >= since), CALIDAD_DEALS) }
       }
     });
 
