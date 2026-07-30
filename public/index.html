@@ -258,6 +258,7 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 .error-banner{background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.3);border-radius:var(--radius);padding:16px 24px;margin-bottom:16px;color:var(--red);font-size:14px;display:none}
 
 #dashboardApp{display:none}
+.note-nombre{margin:10px 0 0;width:100%}
 
 /* ===== RESPONSIVE ===== */
 @media(max-width:1024px){
@@ -292,10 +293,9 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
   <div class="login-box">
     <img src="logo.png" alt="Start Companies" class="login-logo-img">
     <div class="login-title">Dashboard</div>
-    <div class="login-sub">Ingresa tus credenciales para acceder</div>
+    <div class="login-sub">Ingresa la contraseña para acceder</div>
     <form onsubmit="handleLogin(event)">
-      <input class="login-input" type="text" id="loginUser" placeholder="Tu nombre" autocomplete="username" required>
-      <input class="login-input" type="password" id="loginPass" placeholder="Contrasena" autocomplete="current-password" required>
+      <input class="login-input" type="password" id="loginPass" placeholder="Contraseña" autocomplete="current-password" required autofocus>
       <button class="login-btn" type="submit">Iniciar Sesion</button>
     </form>
     <div class="login-error" id="loginError"></div>
@@ -371,6 +371,7 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
       <h3 id="noteTitle"></h3>
       <div class="note-who" id="noteWho"></div>
       <textarea id="noteText" placeholder="Escribi una nota..."></textarea>
+      <input class="login-input note-nombre" id="noteNombre" type="text" placeholder="Tu nombre (para firmar la nota)" autocomplete="name">
       <div class="note-modal-actions">
         <button class="note-cancel" onclick="closeNote()">Cancelar</button>
         <button class="note-save" onclick="saveNote()">Guardar</button>
@@ -384,33 +385,37 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 // La validacion de la clave pasa en el servidor (netlify/functions/auth.js).
 // Antes esta pagina traia la tabla de hashes y decidia sola si mostrar el panel,
 // mientras los endpoints de datos no pedian nada: la base se bajaba con un curl.
-// El nombre es solo para firmar las notas, no es una credencial.
+// Entrar pide solo la contrasena. El nombre, que se usa para firmar las notas, se
+// pregunta recien al escribir una y queda guardado en el navegador.
 let TOKEN=null;
+
+function nombreGuardado(){return localStorage.getItem('sc_nombre')||''}
 
 async function handleLogin(e){
   e.preventDefault();
   const err=document.getElementById('loginError');
-  const user=document.getElementById('loginUser').value.trim();
   const pass=document.getElementById('loginPass').value;
-  if(!user){err.textContent='Pone tu nombre';return}
   err.textContent='Verificando...';
   try{
     const r=await fetch('/.netlify/functions/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pass})});
     const j=await r.json().catch(()=>({}));
-    if(!r.ok){err.textContent=j.error||'Contrasena incorrecta';return}
+    if(!r.ok){err.textContent=j.error||'Contraseña incorrecta';return}
     TOKEN=j.token;
-    localStorage.setItem('sc_user',JSON.stringify({user,token:j.token,expires:Date.now()+(j.expiraEn||0)}));
+    localStorage.setItem('sc_user',JSON.stringify({token:j.token,expires:Date.now()+(j.expiraEn||0)}));
     err.textContent='';
-    showDashboard(user);
+    showDashboard();
   }catch(ex){err.textContent='No se pudo conectar: '+ex.message}
 }
 
 function handleLogout(){localStorage.removeItem('sc_user');TOKEN=null;location.reload()}
 
-function showDashboard(user){
+function showDashboard(){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('dashboardApp').style.display='block';
-  document.getElementById('userBadge').textContent=user;
+  const badge=document.getElementById('userBadge');
+  const n=nombreGuardado();
+  badge.textContent=n;
+  badge.style.display=n?'':'none';
   fetchData();
 }
 
@@ -433,7 +438,7 @@ function authHeaders(extra){
     const s=JSON.parse(raw);
     if(!s.token||Date.now()>s.expires){localStorage.removeItem('sc_user');return}
     TOKEN=s.token;
-    showDashboard(s.user);
+    showDashboard();
   }catch(e){localStorage.removeItem('sc_user')}
 })();
 
@@ -1682,6 +1687,7 @@ function openNote(key,label){
   currentNoteKey=key;
   document.getElementById('noteTitle').textContent=label;
   const note=NOTES[key];
+  document.getElementById('noteNombre').value=nombreGuardado();
   document.getElementById('noteText').value=note?note.text:'';
   document.getElementById('noteWho').textContent=note?`Editado por ${note.user} - ${new Date(note.updatedAt).toLocaleString('es-AR')}`:'';
   document.getElementById('noteOverlay').classList.add('show');
@@ -1692,9 +1698,14 @@ function closeNote(){document.getElementById('noteOverlay').classList.remove('sh
 
 async function saveNote(){
   const text=document.getElementById('noteText').value;
-  const user=sessionStorage.getItem('sc_user')||localStorage.getItem('sc_user');
-  let userName='';
-  try{userName=JSON.parse(user).user||user}catch(e){userName=user}
+  // El nombre ya no viene del login (que solo pide contrasena): se escribe aca la
+  // primera vez y queda guardado en el navegador para las proximas.
+  const userName=(document.getElementById('noteNombre').value||'').trim();
+  if(userName){
+    localStorage.setItem('sc_nombre',userName);
+    const badge=document.getElementById('userBadge');
+    badge.textContent=userName;badge.style.display='';
+  }
   try{
     const r=await fetch('/.netlify/functions/notes',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({key:currentNoteKey,text,user:userName})});
     if(r.ok){
