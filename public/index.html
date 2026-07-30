@@ -699,8 +699,10 @@ function lecturaDelPeriodo(rows,allLLCs){
       partes.push(`El canal que más califica es <b>${esc(mejor[0])}</b> (${mejor[1].sql} SQL de ${mejor[1].n} leads, ${pct2(mejor[1].sql,mejor[1].n)}%).`);
     }
     if(secos.length){
-      const lista=secos.slice(0,2).map(([c,v])=>`${esc(c)} (${v.n})`).join(' y ');
-      partes.push(`<span class="lectura-alerta">${lista} ${secos.length>1||secos[0][1].n>1?'trajeron':'trajo'} volumen y <b>ningún SQL</b>.</span>`);
+      const listados=secos.slice(0,2);
+      const lista=listados.map(([c,v])=>`${esc(c)} (${v.n})`).join(' y ');
+      const verbo=listados.length>1?'trajeron':'trajo';   // concuerda con cuantos canales se nombran
+      partes.push(`<span class="lectura-alerta">${lista} ${verbo} volumen y <b>ningún SQL</b>.</span>`);
     }
   }
 
