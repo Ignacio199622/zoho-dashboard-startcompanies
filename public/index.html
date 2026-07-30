@@ -147,8 +147,8 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 .chart-note{font-size:11px;color:var(--text2);margin-bottom:14px}
 .chart-plot{position:relative}
 .chart-svg{display:block;width:100%;height:150px;overflow:visible}
-.chart-xaxis{display:flex;margin-top:6px}
-.chart-xlabel{flex:1;text-align:center;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.4px}
+.chart-xaxis{position:relative;height:14px;margin-top:6px}
+.chart-xlabel{position:absolute;top:0;white-space:nowrap;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.4px}
 .chart-hit{position:absolute;inset:0;display:flex}
 .chart-hitcol{flex:1;cursor:default}
 
@@ -544,7 +544,14 @@ function tendenciaHTML(serie,titulo,nota){
   const area=`${linea} L${x(serie.length-1).toFixed(1)},${h-16} L${x(0).toFixed(1)},${h-16} Z`;
   const puntos=serie.map((p,i)=>`<circle cx="${x(i).toFixed(1)}" cy="${y(p.valor).toFixed(1)}" r="4" fill="var(--s3)" stroke="var(--surface)" stroke-width="2"/>`).join('');
   const hits=serie.map(p=>`<div class="chart-hitcol" data-tip="${esc(mesLargo(p.mes)+': '+p.valor+' leads')}"></div>`).join('');
-  const ejes=serie.map(p=>`<div class="chart-xlabel">${mesLabel(p.mes)}</div>`).join('');
+  // Las etiquetas se posicionan con la MISMA cuenta que los puntos. Con columnas
+  // de ancho igual quedaban corridas: el primer punto va pegado al borde y su
+  // etiqueta caia centrada en la primera columna.
+  const ejes=serie.map((p,i)=>{
+    const izq=(x(i)/w*100).toFixed(2);
+    const t=i===0?'none':i===serie.length-1?'translateX(-100%)':'translateX(-50%)';
+    return`<div class="chart-xlabel" style="left:${izq}%;transform:${t}">${mesLabel(p.mes)}</div>`;
+  }).join('');
   return`<div class="chart-card">
     <div class="chart-title">${esc(titulo)}</div>
     <div class="chart-note">${esc(nota||'')}</div>
@@ -638,25 +645,27 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
 
   // Mismas cuentas sobre la ventana inmediatamente anterior, para los deltas.
   const prev=ventanaAnterior();
-  let pTotal=null,pAgendoTasa=null,pSql=null,pLlc=null;
+  let pTotal=null,pAgendoTasa=null,pAsistio=null,pSql=null,pLlc=null;
   if(prev){
     const pr=enVentana(DATA.leads,prev);
     const pe=calcularEmbudo(pr);
     pTotal=pe[0].valor;
     pAgendoTasa=pct(pe[1].valor,pe[0].valor);
+    pAsistio=pe[2].valor;
     pSql=pe[3].valor;
     pLlc=enVentana(allLLCs||[],prev).length;
   }
 
   const serieLeads=serieMensual(DATA.leads);
   const serieSQL=serieMensual(DATA.leads,'Fecha',r=>(r['Calificación']||'').toLowerCase().includes('sql calificado'));
+  const serieAsistio=serieMensual(DATA.leads,'Fecha',r=>r['Estado del meeting']==='Asistió');
   const serieLLC=serieMensual(DATA.llcs||[]);
   const tasa=pct(agendo,total);
 
   const kpis=`<div class="kpi-row">
     ${kpiTile('Leads',total,'en el per&iacute;odo elegido',deltaHTML(total,pTotal),serieLeads)}
     ${kpiTile('Tasa de agendamiento',tasa+'%',agendo+' de '+total+' agendaron',deltaHTML(tasa,pAgendoTasa),null)}
-    ${kpiTile('Asistieron',asistio,pct(asistio,agendo)+'% de los que agendaron',null,null)}
+    ${kpiTile('Asistieron',asistio,pct(asistio,agendo)+'% de los que agendaron',deltaHTML(asistio,pAsistio),serieAsistio)}
     ${kpiTile('SQL Calificados',sql,pct(sql,total)+'% de los leads',deltaHTML(sql,pSql),serieSQL)}
     ${kpiTile('LLCs abiertas',llc,'en el per&iacute;odo, medidas aparte',deltaHTML(llc,pLlc),serieLLC)}
   </div>`;
@@ -689,7 +698,9 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
     ${barrasHTML(canales,{pctSobre:total})}
   </div>`;
 
-  const tendencia=tendenciaHTML(serieLeads,'Leads por mes','Sobre todo el hist&oacute;rico cargado, sin importar el filtro de per&iacute;odo');
+  // Texto plano: tendenciaHTML lo pasa por esc(), asi que una entidad HTML se
+  // veria literal ("hist&oacute;rico").
+  const tendencia=tendenciaHTML(serieLeads,'Leads por mes','Sobre todo el histórico cargado, sin importar el filtro de período');
 
   return kpis+`<div class="charts-row">${tendencia}${embudo}${porCanal}</div>`;
 }
