@@ -220,6 +220,128 @@ function meetingState(events) {
   return 'Sin información';
 }
 
+// ---------------------------------------------------------------------------
+// Atribución de landing
+//
+// Diccionario tomado de "MAPA AGENDAS LANDINGS - ATRIBUCION.csv". Zoho guarda el
+// path de la landing en `Calendario` y el calendario de Cal.com usado en el
+// `Event_Title` del meeting, así que entre los dos se puede decir de dónde vino
+// cada lead en lugar del genérico "Landing Page".
+// ---------------------------------------------------------------------------
+const MAPA_LANDING = {
+  'asesoria-llc': 'Meta Ads',
+  'presentacion': 'Meta Ads',
+  'llc-7-dias': 'Meta Ads',
+  'abre-tu-llc': 'Meta Ads',
+  'agendamientoform': 'Meta Ads',
+  'abre-tu-llc-ads': 'Reddit',
+  'reddit-llc': 'Reddit',
+  'abrir-llc-estados-unidos': 'YouTube Ads',
+  'calendarioyoutube': 'YouTube Ads',
+  'crear-llc-usa': 'Google Ads',
+  'calendariogoogle': 'Google Ads',
+  'agenda-organica': 'Web Orgánica',
+  'consulta-gratuita': 'Web Orgánica',
+  'agendaorganica': 'WhatsApp / Manual',
+  'agenda-ignacio': 'Marca Personal',
+  'agendaignacio': 'Marca Personal',
+  'agendaclientes': 'Cliente actual',
+  'agenda-consulta-clientes': 'Cliente actual',
+  'reunion-gratuita': 'Partner',
+  'calendario-cole-startcompanies': 'Partner',
+  'calendario-crea-tu-llc': 'SEO Satélite',
+  'creatullc': 'SEO Satélite',
+  'consulta-mailcamp': 'Email Marketing',
+  'ai-event': 'Evento / AI',
+  'apertura-banco-relay': 'Relay / Banco',
+  'rescate-relay': 'Relay / Rescate'
+};
+
+// Paths que el propio mapa marca como "a clasificar": existen en los datos pero
+// no identifican un canal por sí solos.
+const LANDING_AMBIGUA = ['agendar', 'agenda', 'evaluar-caso', 'quiero-mi-llc'];
+
+// Calendario de Cal.com -> canal. Cada fila se validó cruzando los eventos reales
+// contra el Calendario y el Lead_Source de sus leads, no sólo contra el CSV.
+const MAPA_CALENDARIO = [
+  { re: /asesor[íi]a estrat[ée]gica/i, canal: 'Meta Ads', seguro: true },
+  { re: /^30 min meeting/i, canal: 'Meta Ads', seguro: false },   // mismo /30min, con el nombre por defecto
+  { re: /pocos lugares/i, canal: 'Meta Ads', seguro: true },      // Lead Form Meta / retargeting
+  { re: /consulta gratuita de 30 min sobre tu llc/i, canal: 'Web Orgánica', seguro: true },
+  { re: /agenda con ignacio/i, canal: 'Marca Personal', seguro: true },
+  { re: /cobros en usd.*google|google$/i, canal: 'Google Ads', seguro: true },
+  { re: /1:1 con santiago|con santiago/i, canal: 'Reddit', seguro: true },
+  { re: /consulta de seguimiento/i, canal: 'Cliente actual', seguro: true },
+  { re: /business en usa/i, canal: 'Partner', seguro: true },
+  { re: /discontinuado/i, canal: 'WhatsApp / Manual', seguro: false }
+];
+
+// Lead_Source que ya nombran un canal real: no hace falta derivar nada.
+const FUENTE_ES_CANAL = {
+  'Reddit Ads': 'Reddit',
+  'Marca Personal': 'Marca Personal',
+  'Clientes Actuales': 'Cliente actual',
+  'Referidos': 'Referidos',
+  'Instagram Bot': 'Instagram Bot',
+  'Meta Retargeting': 'Meta Ads'
+};
+
+function limpiarPath(v) {
+  return String(v || '').trim().toLowerCase().replace(/^https?:\/\/[^/]+/, '').replace(/^\/+|\/+$/g, '').split('?')[0];
+}
+
+// "✨Consulta Gratuita ... entre Start Companies y Juan" -> "Consulta Gratuita ...".
+// Los emoji llegan de Cal.com y varios se ven como "?" porque el encoding ya vino
+// roto de Zoho, así que se corta todo lo que no sea letra o número al principio.
+function limpiarTitulo(t) {
+  return String(t || '')
+    .replace(/\s+entre\s+.*$/i, '')
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function canalDeCalendario(titulo) {
+  const t = limpiarTitulo(titulo);
+  if (!t) return null;
+  for (const m of MAPA_CALENDARIO) if (m.re.test(t)) return m;
+  return null;
+}
+
+// Devuelve de dónde vino el lead y con qué grado de certeza, en este orden:
+// lo que ya cargó Zoho > el path de la landing > el calendario de la PRIMERA
+// llamada > la fuente cuando ya nombra un canal.
+function atribuir(lead, primerEvento) {
+  const path = limpiarPath(lead.Calendario);
+  const titulo = limpiarTitulo(primerEvento && primerEvento.Event_Title);
+  // La landing siempre es lo más concreto que haya: el path si existe, si no el
+  // calendario con el que agendó. Nunca el nombre del canal, que ya va aparte.
+  const landing = path || titulo || '';
+
+  const zoho = lead.Landing_Origen;
+  if (zoho && zoho !== 'A clasificar') {
+    return { canal: zoho, landing, origen: 'Zoho', seguro: true };
+  }
+
+  if (path && MAPA_LANDING[path]) {
+    return { canal: MAPA_LANDING[path], landing, origen: 'Landing', seguro: true };
+  }
+
+  const cal = canalDeCalendario(primerEvento && primerEvento.Event_Title);
+  if (cal) {
+    return { canal: cal.canal, landing, origen: 'Calendario', seguro: cal.seguro };
+  }
+
+  if (path && LANDING_AMBIGUA.includes(path)) {
+    return { canal: null, landing, origen: 'Sin clasificar', seguro: false };
+  }
+
+  const fuente = FUENTE_ES_CANAL[lead.Lead_Source];
+  if (fuente) return { canal: fuente, landing, origen: 'Fuente', seguro: true };
+
+  return { canal: null, landing, origen: '', seguro: false };
+}
+
 // Lead_Source arrives with the same channel spelled several ways (the WhatsApp
 // number, the wwebjs bridge, TimelinesAI...). Collapse the variants so "leads by
 // channel" stops splitting one channel into five rows.
@@ -318,7 +440,8 @@ const LEAD_FIELDS = [
   'Lead_Source', 'Lead_Status', 'Created_Time', 'Description', 'Tipo',
   'Owner', 'Retargeting', 'Landing_Origen', 'Modalidad_de_Cierre',
   'Modalidad_de_Pago', 'Nombre_retargeting', 'Inicio_Retargeting',
-  'N_mero_de_mensaje', 'En_Nurturing', 'Qui_n_lo_trajo_a_la_llamada', 'fbclid'
+  'N_mero_de_mensaje', 'En_Nurturing', 'Qui_n_lo_trajo_a_la_llamada', 'fbclid',
+  'Calendario'   // el path de la landing: la atribución más precisa que hay
 ];
 
 // Build the `leads` dataset from CRM, restricted to the relevant recent window.
@@ -326,7 +449,7 @@ const LEAD_FIELDS = [
 // months so the dashboard can compare periods month over month.
 async function buildLeads(token) {
   const leadFields = LEAD_FIELDS.join(',');
-  const eventFields = ['Who_Id', 'What_Id', 'Start_DateTime', 'Status_del_Meet', 'Created_Time'].join(',');
+  const eventFields = ['Who_Id', 'What_Id', 'Start_DateTime', 'Status_del_Meet', 'Created_Time', 'Event_Title'].join(',');
 
   const since = leadsWindowStart();
 
@@ -348,6 +471,7 @@ async function buildLeads(token) {
 
   const enVentana = leads
     .filter(l => l.Created_Time && new Date(l.Created_Time) >= since)
+    .filter(esLeadReal)
     .sort((a, b) => new Date(b.Created_Time) - new Date(a.Created_Time));
 
   const rows = enVentana
@@ -355,12 +479,20 @@ async function buildLeads(token) {
       const evs = evById[l.id] || [];
       const agendo = evs.length ? 'Sí' : 'No';
       const mstate = meetingState(evs);
+      // La atribución sale SIEMPRE de la primera llamada agendada: si después
+      // reagenda por otro calendario, el origen real sigue siendo el primero.
+      const primero = evs.slice().sort((a, b) =>
+        new Date(a.Start_DateTime || a.Created_Time) - new Date(b.Start_DateTime || b.Created_Time))[0];
+      const atr = atribuir(l, primero);
       return {
         'Fecha': fmtDate(l.Created_Time),
         'Servicio': l.Tipo || 'NO SE ASIGNÓ SERVICIO',
         'Nombre y Apellido': l.Full_Name || '',
-        'Canal': deriveCanal(l),
-        'Landing Origen': valorReal(l.Landing_Origen),
+        // El canal atribuido gana sobre Lead_Source: "Landing Page" no dice de
+        // qué landing vino, que es justamente lo que hay que saber.
+        'Canal': atr.canal || deriveCanal(l),
+        'Landing Origen': atr.landing || SIN_DATO,
+        'Origen del dato': atr.origen ? (atr.seguro ? atr.origen : atr.origen + ' (a confirmar)') : SIN_DATO,
         'Calificación': deriveCalificacion(l, agendo, mstate),
         'Teléfono': l.Phone || '',
         'Móvil': l.Mobile || '',
@@ -470,6 +602,42 @@ function esRegistroReal(row) {
   return true;
 }
 
+// La app de facturación gratis escribe un lead en el CRM en cada prueba, así que
+// entraron "asdasdasd", "qa-fields", "qa.cur.1785337196", "Probando
+// administracion"... 17 de sus 21 leads de julio son basura de testeo. Se filtran
+// acá, pero el arreglo de verdad es que la app deje de escribir en producción.
+const BASURA_TESTEO = [
+  /^(asd|sad|dsa|qwe|zxc|aaa|sss|ddd|xxx)/i,
+  /\b(qa|test|testing|prueba|probando|demo|dummy)\b/i,
+  /^qa[.\-_]/i,
+  /@(example|test|mailinator|yopmail)\.(com|org|net)$/i
+];
+function esLeadReal(l) {
+  const nombre = String(l.Full_Name || '').trim();
+  const mail = String(l.Email || '').trim();
+  if (!nombre && !mail && !l.Mobile && !l.Phone) return false;
+  // Nadie del equipo es un lead: los @startcompanies.io son pruebas internas.
+  // Sirve además para los que el resto de las reglas no agarra ("administracioasdn1").
+  if (/@startcompanies\.(io|us|net)$/i.test(mail)) return false;
+  // Ojo con no pasarse: "Matiasdamianavila@gmail.com" tiene "asd" en el medio y es
+  // una persona real, por eso los patrones van anclados y no sueltos.
+  const texto = nombre + ' ' + mail;
+  return !BASURA_TESTEO.some(re => re.test(texto));
+}
+
+// Cuánto hace que no llega un registro nuevo a cada dataset. Las vistas de
+// Analytics sincronizan por su cuenta y se atrasan sin avisar; sin esto el panel
+// muestra datos viejos como si fueran de hoy.
+function ultimaFecha(rows, campo) {
+  let max = null;
+  rows.forEach(r => {
+    const raw = r[campo] || r['Fecha'];
+    const d = raw ? new Date(raw) : null;
+    if (d && !isNaN(d) && (!max || d > max)) max = d;
+  });
+  return max ? max.toISOString() : null;
+}
+
 exports.handler = async (event) => {
   const headers = cabeceras(event.headers);
 
@@ -506,6 +674,14 @@ exports.handler = async (event) => {
       leads: leadsData.rows,
       llcs,
       seguimientos,
+      // Los llcs/seguimientos salen de vistas de Analytics que sincronizan solas:
+      // si la sync se atrasa, el panel tiene que decirlo en vez de mostrar datos
+      // viejos como si fueran de hoy.
+      frescura: {
+        leads: ultimaFecha(leadsData.raw, 'Created_Time'),
+        llcs: ultimaFecha(llcs, 'Fecha'),
+        seguimientos: ultimaFecha(seguimientos, 'Fecha último meeting')
+      },
       calidad: {
         desde: since.toISOString(),
         leads: { campos: CALIDAD_LEADS.map(c => c.label), meses: completitud(leadsData.raw, CALIDAD_LEADS) },

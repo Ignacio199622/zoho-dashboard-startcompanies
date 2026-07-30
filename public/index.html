@@ -1168,6 +1168,15 @@ function sinDato(v){
   if(!v||v===SIN_DATO)return`<span class="badge badge-gray">${SIN_DATO}</span>`;
   return esc(v);
 }
+// La landing concreta, y de donde salio el dato. Un origen "a confirmar" significa
+// que el canal se dedujo del calendario usado y conviene chequearlo.
+function landingCell(r){
+  const v=r['Landing Origen'],o=r['Origen del dato']||'';
+  if(!v||v===SIN_DATO)return`<span class="badge badge-gray">${SIN_DATO}</span>`;
+  const dudoso=/confirmar/i.test(o);
+  return`<span title="Origen del dato: ${esc(o)}">${esc(v)}${dudoso?' <span class="badge badge-gold">?</span>':''}</span>`;
+}
+
 const OWNER_GENERICO='Start Companies Staff';
 function vendedorCell(v){
   if(!v)return`<span class="badge badge-gray">${SIN_DATO}</span>`;
@@ -1442,7 +1451,7 @@ function renderLeads(rows){
     <td>${esc(r['Servicio'])}</td>
     <td><strong>${esc(r['Nombre y Apellido'])}</strong></td>
     <td>${esc(r['Canal'])}</td>
-    <td>${sinDato(r['Landing Origen'])}</td>
+    <td>${landingCell(r)}</td>
     <td>${calificacionBadge(r['Calificaci\u00f3n']||r['Calificacion'])}</td>
     <td>${esc(r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'])}</td>
     <td>${esc(r['Mail'])}</td>
@@ -1548,10 +1557,12 @@ function renderTable(){
   }
   // Si llegaste acá clickeando una alerta, la tabla está recortada: decilo y dejá
   // salir de un clic, si no parece que faltan registros.
-  let aviso='';
+  // Las vistas de Analytics sincronizan solas y se atrasan sin avisar. Si el
+  // dataset que estas mirando quedo viejo, decirlo arriba de la tabla.
+  let aviso=avisoFrescura();
   if(filters.alerta){
     const a=ALERTAS.find(x=>x.id===filters.alerta);
-    if(a)aviso=`<div class="aviso-filtro">Mostrando solo: <b>${esc(a.titulo)}</b>
+    if(a)aviso+=`<div class="aviso-filtro">Mostrando solo: <b>${esc(a.titulo)}</b>
       <button onclick="quitarAlerta()">Ver todo de nuevo</button></div>`;
   }
   if(currentTab==='calidad')el.innerHTML=renderCalidad();
@@ -1563,6 +1574,22 @@ function renderTable(){
 function quitarAlerta(){
   delete filters.alerta;
   updateMetrics();renderTable();
+}
+
+// Leads salen del CRM en vivo; LLCs y Seguimientos de vistas de Zoho Analytics que
+// sincronizan por su cuenta. Cuando esa sync se atrasa, la tabla muestra datos
+// viejos sin ninguna senal: esto la pone.
+function avisoFrescura(){
+  if(!DATA||!DATA.frescura||currentTab==='calidad')return'';
+  const iso=DATA.frescura[currentTab];
+  if(!iso)return'';
+  const d=new Date(iso);if(isNaN(d))return'';
+  const dias=Math.floor((Date.now()-d.getTime())/86400000);
+  if(dias<2)return'';
+  const fecha=d.toLocaleDateString('es-AR',{day:'2-digit',month:'short'});
+  const fuente=currentTab==='leads'?'el CRM':'la vista de Zoho Analytics';
+  return`<div class="aviso-filtro">El registro más nuevo acá es del <b>${fecha}</b>, hace ${dias} días.
+    La sincronización de ${fuente} está atrasada: lo que ves no incluye lo último.</div>`;
 }
 
 function switchTab(tab){
