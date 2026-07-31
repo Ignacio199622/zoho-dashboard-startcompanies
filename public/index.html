@@ -146,6 +146,16 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 .alerta-gold{border-left-color:var(--gold)}.alerta-gold .alerta-n{color:var(--gold)}
 .alerta-cyan{border-left-color:var(--cyan)}.alerta-cyan .alerta-n{color:var(--cyan)}
 
+.btn-inv{float:right;background:none;border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:3px 10px;font-family:inherit;font-size:11px;cursor:pointer;transition:all .15s}
+.btn-inv:hover{border-color:var(--blue);color:var(--blue)}
+.sin-retorno{color:var(--red);font-weight:600}
+.inv-modal{max-width:620px}
+.inv-mes{border-top:1px solid var(--border);padding:12px 0}
+.inv-mes:first-child{border-top:none}
+.inv-mes-tit{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.inv-fila{display:grid;grid-template-columns:1fr 130px;align-items:center;gap:10px;padding:3px 0;font-size:13px}
+.inv-input{min-width:0;width:100%;text-align:right;font-variant-numeric:tabular-nums}
+
 .comp-table td,.comp-table th{white-space:nowrap}
 .comp-table .num{text-align:right;font-variant-numeric:tabular-nums}
 .comp-mejor td{background:rgba(0,182,122,.10)}
@@ -361,6 +371,19 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
       </div>
       <div class="table-scroll" id="tableContent">
         <div class="loading"><div class="spinner"></div><div class="loading-text">Conectando con Zoho Analytics...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Inversión -->
+  <div class="note-modal-overlay" id="invOverlay" onclick="if(event.target===this)cerrarInversion()">
+    <div class="note-modal inv-modal">
+      <h3>Inversión en pauta</h3>
+      <div class="note-who">Cargá cuánto gastaste cada mes en cada canal. Con eso el tablero calcula el costo por lead y por SQL. Dejá vacío lo que no aplique.</div>
+      <div id="invCampos"></div>
+      <div class="note-modal-actions">
+        <button class="note-cancel" onclick="cerrarInversion()">Cancelar</button>
+        <button class="note-save" onclick="guardarInversion()">Guardar</button>
       </div>
     </div>
   </div>
@@ -771,6 +794,81 @@ function abrirAlerta(id){
   if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
+// ===== INVERSIÓN =====
+// Se carga a mano a proposito: traerla de la API de Meta obligaria al tablero a
+// consultar la cuenta publicitaria todo el dia. Una vez por mes alcanza, y el
+// numero que importa (costo por SQL) sale igual.
+let INVERSION={};
+
+async function cargarInversion(){
+  try{
+    const r=await fetch('/.netlify/functions/inversion',{headers:authHeaders()});
+    if(r.ok)INVERSION=await r.json();
+  }catch(e){/* sin inversion el panel funciona igual, solo no muestra costos */}
+}
+
+// Canales pagos que aparecen en los datos, para no pedir plata de los organicos.
+const CANALES_PAGOS=['Meta Ads','Google Ads','YouTube','YouTube Ads','Reddit','Meta Retargeting'];
+function canalesParaInversion(){
+  if(!DATA)return CANALES_PAGOS;
+  const vistos=new Set(DATA.leads.map(l=>l.Canal));
+  const propuestos=CANALES_PAGOS.filter(c=>vistos.has(c));
+  return propuestos.length?propuestos:CANALES_PAGOS;
+}
+
+function mesesDisponibles(){
+  const s=new Set();
+  (DATA?DATA.leads:[]).forEach(l=>{const d=parseDate(l.Fecha);if(d)s.add(claveMes(d))});
+  return [...s].sort().reverse();
+}
+
+function abrirInversion(){
+  const meses=mesesDisponibles(),canales=canalesParaInversion();
+  document.getElementById('invCampos').innerHTML=meses.map(m=>`
+    <div class="inv-mes"><div class="inv-mes-tit">${mesLargo(m)}</div>
+      ${canales.map(c=>`<label class="inv-fila"><span>${esc(c)}</span>
+        <input type="number" min="0" step="1" class="filter-select inv-input"
+          data-mes="${m}" data-canal="${esc(c)}" value="${(INVERSION[m]&&INVERSION[m][c])||''}" placeholder="USD"></label>`).join('')}
+    </div>`).join('');
+  document.getElementById('invOverlay').classList.add('show');
+}
+function cerrarInversion(){document.getElementById('invOverlay').classList.remove('show')}
+
+async function guardarInversion(){
+  const nuevo={};
+  document.querySelectorAll('.inv-input').forEach(i=>{
+    const m=i.dataset.mes,c=i.dataset.canal,v=parseFloat(i.value);
+    if(!isNaN(v)&&v>0){if(!nuevo[m])nuevo[m]={};nuevo[m][c]=v}
+  });
+  try{
+    const r=await fetch('/.netlify/functions/inversion',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({inversion:nuevo})});
+    if(!r.ok){const j=await r.json().catch(()=>({}));showError('No se pudo guardar la inversión: '+(j.error||('HTTP '+r.status)));return}
+    INVERSION=await r.json();
+    cerrarInversion();updateMetrics();
+  }catch(e){showError('Error guardando la inversión: '+e.message)}
+}
+
+// Suma la inversion de un canal en los meses que toca el periodo elegido. Si el
+// periodo agarra medio mes, se prorratea por dias para no inflar el costo.
+function inversionDe(canal){
+  const v=ventanaActual();
+  let total=0,hayDato=false;
+  Object.keys(INVERSION).forEach(mes=>{
+    const monto=INVERSION[mes][canal];
+    if(!monto)return;
+    const p=mes.split('-').map(Number);
+    const ini=new Date(p[0],p[1]-1,1),fin=new Date(p[0],p[1],0,23,59,59);
+    if(!v){total+=monto;hayDato=true;return}
+    const desde=new Date(Math.max(ini,v.desde)),hasta=new Date(Math.min(fin,v.hasta));
+    if(hasta<desde)return;
+    const diasMes=(fin-ini)/86400000,diasSolapa=(hasta-desde)/86400000;
+    total+=monto*(diasMes>0?Math.min(1,(diasSolapa+1)/(diasMes+1)):1);
+    hayDato=true;
+  });
+  return hayDato?total:null;
+}
+function money(n){return '$'+Math.round(n).toLocaleString('es-AR')}
+
 // ===== COMPARADOR DE CANALES =====
 // La tabla con la que se decide presupuesto: volumen contra calidad, lado a lado.
 function comparadorCanales(rows){
@@ -786,17 +884,27 @@ function comparadorCanales(rows){
   const filas=Object.entries(m).filter(([,v])=>v.n>=5).sort((a,b)=>b[1].n-a[1].n);
   if(!filas.length)return'';
   const maxSql=Math.max(...filas.map(([,v])=>pct2(v.sql,v.n)));
+  const hayInversion=filas.some(([c])=>inversionDe(c)!==null);
   return`<div class="chart-card">
-    <div class="chart-title">Comparador de canales</div>
-    <div class="chart-note">Volumen contra calidad. Canales con 5 leads o más en el período.</div>
+    <div class="chart-title">Comparador de canales
+      <button class="btn-inv" onclick="abrirInversion()">${hayInversion?'Editar inversión':'Cargar inversión'}</button></div>
+    <div class="chart-note">Volumen contra calidad. Canales con 5 leads o más en el período.${hayInversion?'':' Cargá la inversión y aparece el costo por SQL.'}</div>
     <div class="table-scroll"><table class="comp-table"><thead><tr>
       <th>Canal</th><th class="num">Leads</th><th class="num">SQL</th><th class="num">% SQL</th><th class="num">No-show</th>
+      ${hayInversion?'<th class="num">Inversión</th><th class="num">Costo/lead</th><th class="num">Costo/SQL</th>':''}
     </tr></thead><tbody>
     ${filas.map(([c,v])=>{
       const p=pct2(v.sql,v.n);
       const cl=v.sql===0?'comp-cero':p>=maxSql&&maxSql>0?'comp-mejor':'';
+      const inv=inversionDe(c);
+      // Sin SQL no hay costo por SQL: mostrar la inversion entera como si fuera el
+      // costo de uno seria mentir. Se marca como plata sin retorno.
+      const costoSql=inv===null?'':v.sql?money(inv/v.sql):'<span class="sin-retorno">sin SQL</span>';
+      const cols=hayInversion?`<td class="num">${inv===null?'—':money(inv)}</td>
+        <td class="num">${inv===null?'—':money(inv/v.n)}</td>
+        <td class="num"><b>${inv===null?'—':costoSql}</b></td>`:'';
       return`<tr class="${cl}"><td>${esc(c)}</td><td class="num">${v.n}</td><td class="num">${v.sql}</td>
-        <td class="num"><b>${p}%</b></td><td class="num">${v.meet?pct2(v.ns,v.meet)+'%':'—'}</td></tr>`;
+        <td class="num"><b>${p}%</b></td><td class="num">${v.meet?pct2(v.ns,v.meet)+'%':'—'}</td>${cols}</tr>`;
     }).join('')}
     </tbody></table></div>
   </div>`;
@@ -1644,6 +1752,7 @@ async function fetchData(){
       return !desc.includes('timelines') && !name.includes('new whatsapp contact');
     });
     await loadNotes();
+    await cargarInversion();
     if(!filters.periodo)applyPeriodo(defaultPeriodo(currentTab));
     updateMetrics();buildFilters();renderTable();
     const cacheStatus=res.headers.get('X-Cache');
