@@ -574,7 +574,7 @@ function barrasHTML(items,opts){
     return`<div class="hbar" data-tip="${esc(it.tip||(it.etiqueta+': '+it.valor))}">
       <div class="hbar-label" title="${esc(it.etiqueta)}">${esc(it.etiqueta)}</div>
       <div class="hbar-track"><div class="hbar-fill" style="width:${(it.valor/max*100).toFixed(1)}%;background:${color}"></div></div>
-      <div class="hbar-value">${it.valor}${pct!==null?` <span class="hbar-pct">${pct}%</span>`:''}</div>
+      <div class="hbar-value">${it.valor}${o.sufijo||''}${pct!==null?` <span class="hbar-pct">${pct}%</span>`:''}</div>
     </div>`;
   }).join('');
 }
@@ -1067,7 +1067,7 @@ function renderMetricsSeguimientos(rows){
   const cardNS=canales.length?`<div class="chart-card">
     <div class="chart-title">No-show por canal</div>
     <div class="chart-note">Sobre los que agendaron, no sobre el total. Canales con 3 o más meetings.</div>
-    ${barrasHTML(canales)}
+    ${barrasHTML(canales,{sufijo:'%'})}
   </div>`:'';
 
   const reagCard=reagendo?`<div class="chart-card">
