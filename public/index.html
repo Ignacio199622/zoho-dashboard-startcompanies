@@ -955,236 +955,6 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
     `<div class="charts-row">${comparadorCanales(rows)}${rendimientoLandings(rows)}</div>`;
 }
 
-function renderMetricsLeads(rows, allLLCs, allSeguimientos){
-  const total=rows.length;
-  const calif=rows.filter(r=>(r['Calificaci\u00f3n']||r['Calificacion']||'').toLowerCase().includes('sql calificado')).length;
-  const noShow=rows.filter(r=>(r['Calificaci\u00f3n']||r['Calificacion']||'').toLowerCase().includes('no show')).length;
-  const agendo=rows.filter(r=>r['\u00bfAgend\u00f3?']==='S\u00ed').length;
-  const tasaAg=pct(agendo,total);
-  const today=rows.filter(r=>isToday(parseDate(r['Fecha']))).length;
-  const week=rows.filter(r=>isThisWeek(parseDate(r['Fecha']))).length;
-
-  // By channel
-  const channels={};
-  rows.forEach(r=>{const c=r['Canal']||'Otro';channels[c]=(channels[c]||0)+1});
-  // Nombres canonicos: la funcion ya unifica las variantes de Lead_Source
-  // (4 formas distintas de escribir WhatsApp, "Forma Captacion Apertura" = Meta Ads).
-  const organic=channels['Web Orgánica']||0;
-  const meta=(channels['Meta Ads']||0)+(channels['Meta Retargeting']||0);
-  const landing=channels['Landing Page']||0;
-  const wa=channels['WhatsApp']||0;
-  const referidos=(channels['Referidos']||0)+(channels['Marca Personal']||0);
-
-  const metaAll=rows.filter(r=>{const c=(r['Canal']||'').toLowerCase();return c.includes('meta')||c.includes('facebook')});
-  const metaAg=metaAll.filter(r=>r['\u00bfAgend\u00f3?']==='S\u00ed').length;
-  const metaPct=pct(metaAg,metaAll.length);
-
-  // Funnel: Lead → Agendó → Asistió → SQL → LLC. Mismos numeros que la cabecera:
-  // salen de la misma funcion para que no puedan contradecirse.
-  const leadEmails=new Set(rows.map(r=>normEmail(r['Mail'])).filter(Boolean));
-  const _emb=calcularEmbudo(rows);
-  const asistioCount=_emb[2].valor;
-  const llcCount=enVentana(allLLCs||[],ventanaActual()).length;
-
-  // Rendimiento por vendedor (excluir Staff)
-  const vendorMap={};
-  rows.forEach(r=>{
-    const v=r['Vendedor asignado']||'';
-    if(v&&!v.includes('Start Companies Staff')){
-      if(!vendorMap[v])vendorMap[v]={total:0,agendo:0};
-      vendorMap[v].total++;
-      if(r['\u00bfAgend\u00f3?']==='S\u00ed')vendorMap[v].agendo++;
-    }
-  });
-  const vendors=Object.entries(vendorMap).filter(([,d])=>d.total>=2).sort((a,b)=>b[1].total-a[1].total);
-
-  // Canal más rentable (conversión a LLC)
-  // Antes era "Lead -> LLC", cruzando mails contra las LLCs. Ese cruce da 1 de 293
-  // porque el lead convertido desaparece del modulo Leads, asi que el porcentaje
-  // que mostraba no significaba nada. Lead -> SQL sale de un solo dataset y
-  // responde la misma pregunta: que canal trae gente que califica.
-  let canalRentHTML='';
-  {
-    const canalConv={};
-    rows.forEach(r=>{
-      const c=r['Canal']||'Otro';
-      if(!canalConv[c])canalConv[c]={leads:0,sql:0};
-      canalConv[c].leads++;
-      if((r['Calificaci\u00f3n']||r['Calificacion']||'').toLowerCase().includes('sql calificado'))canalConv[c].sql++;
-    });
-    const canales=Object.entries(canalConv).filter(([c,d])=>d.leads>=5&&!isJunkCanal(c)).sort((a,b)=>pct(b[1].sql,b[1].leads)-pct(a[1].sql,a[1].leads));
-    if(canales.length){
-      canalRentHTML=mSection('l_conv','Conversi\u00f3n por Canal (Lead \u2192 SQL)',`<div class="metrics-grid">
-        ${canales.map(([c,d])=>`<div class="metric-card${pct(d.sql,d.leads)>=15?' green':pct(d.sql,d.leads)>=7?' cyan':' gold'}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${pct(d.sql,d.leads)}%</div><div class="metric-sub">${d.sql} SQL de ${d.leads} leads</div></div>`).join('')}
-      </div>`);
-    }
-  }
-
-  let vendorHTML='';
-  if(vendors.length){
-    vendorHTML=mSection('l_vend','Rendimiento por Vendedor',`<div class="metrics-grid">
-      ${vendors.map(([v,d])=>`<div class="metric-card"><div class="metric-label">${esc(v)}</div><div class="metric-value">${d.total}</div><div class="metric-sub">${pct(d.agendo,d.total)}% agendaron</div></div>`).join('')}
-    </div>`);
-  }
-
-  // No-Show por Canal (en Leads, cruzando con seguimientos)
-  let nsLeadHTML='';
-  if(allSeguimientos){
-    const canalNSL={};
-    allSeguimientos.forEach(r=>{
-      if(!leadEmails.has(normEmail(r['Mail'])))return;
-      const c=r['Canal de Origen']||'Otro';
-      const m=(r['Estado del Meeting']||'').toLowerCase();
-      if(!m||m==='sin informaci\u00f3n')return;
-      if(isJunkCanal(c))return;
-      if(!canalNSL[c])canalNSL[c]={total:0,noShow:0};
-      canalNSL[c].total++;
-      if(m.includes('no asisti'))canalNSL[c].noShow++;
-    });
-    const cnsArr=Object.entries(canalNSL).filter(([,d])=>d.total>=2).sort((a,b)=>pct(b[1].noShow,b[1].total)-pct(a[1].noShow,a[1].total));
-    if(cnsArr.length){
-      nsLeadHTML=mSection('l_noshow','No-Show por Canal',`<div class="metrics-grid">
-        ${cnsArr.map(([c,d])=>{const p=pct(d.noShow,d.total);const cl=p>30?'red':p>15?'gold':'green';
-          return `<div class="metric-card ${cl}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${p}%</div><div class="metric-sub">${d.noShow} de ${d.total}</div></div>`}).join('')}
-      </div>`);
-    }
-  }
-
-  return `
-    ${renderCabeceraLeads(rows,allLLCs,allSeguimientos)}
-    ${mSection('l_resumen','Resumen',`<div class="metrics-grid">
-      <div class="metric-card"><div class="metric-label">Total Leads</div><div class="metric-value">${total}</div></div>
-      <div class="metric-card green"><div class="metric-label">SQL Calificados</div><div class="metric-value">${calif}</div></div>
-      <div class="metric-card red"><div class="metric-label">No Show</div><div class="metric-value">${noShow}</div></div>
-      <div class="metric-card cyan"><div class="metric-label">Tasa Agendamiento</div><div class="metric-value">${tasaAg}%</div><div class="metric-sub">${agendo} de ${total} agendaron</div></div>
-      <div class="metric-card gold"><div class="metric-label">Hoy / Semana / Total</div><div class="metric-value">${today}</div><div class="metric-sub">${week} semana \u00b7 ${total} total</div></div>
-    </div>`)}
-    ${mSection('l_canal','Leads por Canal',`<div class="metrics-grid">
-      <div class="metric-card"><div class="metric-label">Org\u00e1nico</div><div class="metric-value">${organic}</div></div>
-      <div class="metric-card purple"><div class="metric-label">Meta Form</div><div class="metric-value">${meta}</div><div class="metric-sub">${metaAg} agendaron (${metaPct}%)</div></div>
-      <div class="metric-card cyan"><div class="metric-label">Landing Page</div><div class="metric-value">${landing}</div></div>
-      <div class="metric-card green"><div class="metric-label">WhatsApp</div><div class="metric-value">${wa}</div></div>
-      <div class="metric-card gold"><div class="metric-label">Referidos</div><div class="metric-value">${referidos}</div></div>
-    </div>`)}
-    ${mSection('l_funnel','Funnel Completo',`<div class="metrics-grid">
-      <div class="metric-card"><div class="metric-label">Leads</div><div class="metric-value">${total}</div></div>
-      <div class="metric-card cyan"><div class="metric-label">Agendaron</div><div class="metric-value">${agendo}</div><div class="metric-sub">${tasaAg}% de leads</div></div>
-      <div class="metric-card green"><div class="metric-label">Asistieron</div><div class="metric-value">${asistioCount}</div><div class="metric-sub">${pct(asistioCount,agendo)}% de agendados</div></div>
-      <div class="metric-card gold"><div class="metric-label">SQL Calificado</div><div class="metric-value">${calif}</div><div class="metric-sub">${pct(calif,asistioCount)}% de asistidos</div></div>
-      <div class="metric-card purple"><div class="metric-label">LLC Abierta</div><div class="metric-value">${llcCount}</div><div class="metric-sub">del per&iacute;odo, no atadas a estos leads</div></div>
-    </div>`)}
-    ${renderComparativaMensual(DATA&&DATA.leads)}
-    ${canalRentHTML}
-    ${nsLeadHTML}
-    ${vendorHTML}`;
-}
-
-function renderMetricsLLCs(rows, allLeads){
-  const confirmadas=rows.filter(r=>(r['Etapa']||'').toLowerCase().includes('confirmada')).length;
-  const enProceso=rows.filter(r=>{const e=(r['Etapa']||'').toLowerCase();return e.includes('filing')||e.includes('activa')}).length;
-  const bancaria=rows.filter(r=>(r['Etapa']||'').toLowerCase().includes('cuenta bancaria confirmada')).length;
-  const pagaron=rows.filter(r=>{const p=(r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago']||'').toLowerCase();return p&&p!=='sin pago'}).length;
-  const sinPago=rows.filter(r=>{const p=(r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago']||'').toLowerCase();return !p||p==='sin pago'}).length;
-
-  // Velocidad de cierre: desde contacto en calendario (meeting) hasta inicio de filing
-  let velHTML='';
-  if(allLeads){
-    const days=[];
-    rows.forEach(r=>{
-      const filingDate=parseDate(r['Fecha']);
-      const email=normEmail(r['Email']);
-      if(!email||!filingDate)return;
-      // Find the earliest meeting date for this contact from leads
-      const lead=allLeads.find(l=>normEmail(l['Mail'])===email);
-      if(!lead)return;
-      const contactDate=parseDate(lead['Fecha']);
-      if(!contactDate)return;
-      const diff=Math.round((filingDate-contactDate)/(1000*60*60*24));
-      if(diff>=0)days.push(diff);
-    });
-    if(days.length){
-      days.sort((a,b)=>a-b);
-      const avg=Math.round(days.reduce((s,d)=>s+d,0)/days.length);
-      const median=days[Math.floor(days.length/2)];
-      const min=days[0];
-      const max=days[days.length-1];
-      velHTML=mSection('ll_vel','Velocidad de Cierre (Contacto \u2192 Filing)',`<div class="metrics-grid">
-        <div class="metric-card cyan"><div class="metric-label">Promedio</div><div class="metric-value">${avg}d</div></div>
-        <div class="metric-card gold"><div class="metric-label">Mediana</div><div class="metric-value">${median}d</div></div>
-        <div class="metric-card green"><div class="metric-label">M\u00e1s r\u00e1pido</div><div class="metric-value">${min}d</div></div>
-        <div class="metric-card red"><div class="metric-label">M\u00e1s lento</div><div class="metric-value">${max}d</div></div>
-      </div>`);
-    }
-  }
-
-  // Desglose por etapa
-  const etapaMap={};
-  rows.forEach(r=>{const e=r['Etapa']||'Sin etapa';etapaMap[e]=(etapaMap[e]||0)+1});
-  const etapas=Object.entries(etapaMap).sort((a,b)=>b[1]-a[1]);
-  const etapaColors={'confirmada':'green','filing':'blue','activa':'gold','cuenta bancaria':'cyan'};
-  function etapaColor(e){const l=e.toLowerCase();for(const[k,v]of Object.entries(etapaColors))if(l.includes(k))return v;return ''}
-
-  // LLCs por canal
-  const canalLLC={};
-  rows.forEach(r=>{const c=r['Canal de Origen']||'Otro';if(!isJunkCanal(c)){canalLLC[c]=(canalLLC[c]||0)+1}});
-  const canalesLLC=Object.entries(canalLLC).sort((a,b)=>b[1]-a[1]);
-
-  return `
-    ${mSection('ll_estado','Estado LLCs',`<div class="metrics-grid">
-      <div class="metric-card purple"><div class="metric-label">Total LLCs</div><div class="metric-value">${rows.length}</div></div>
-      <div class="metric-card green"><div class="metric-label">Confirmadas</div><div class="metric-value">${confirmadas}</div><div class="metric-sub">${pct(confirmadas,rows.length)}% del total</div></div>
-      <div class="metric-card gold"><div class="metric-label">En Proceso</div><div class="metric-value">${enProceso}</div><div class="metric-sub">${pct(enProceso,rows.length)}% · Filing + Activa</div></div>
-      <div class="metric-card cyan"><div class="metric-label">Cuenta Bancaria OK</div><div class="metric-value">${bancaria}</div><div class="metric-sub">${pct(bancaria,rows.length)}% del total</div></div>
-      <div class="metric-card"><div class="metric-label">Pagaron</div><div class="metric-value">${pagaron}</div><div class="metric-sub">${pct(pagaron,rows.length)}% del total</div></div>
-      <div class="metric-card red"><div class="metric-label">Falta Pago</div><div class="metric-value">${sinPago}</div><div class="metric-sub">${pct(sinPago,rows.length)}% del total</div></div>
-    </div>`)}
-    ${mSection('ll_etapas','Desglose por Etapa',`<div class="metrics-grid">
-      ${etapas.map(([e,n])=>`<div class="metric-card ${etapaColor(e)}"><div class="metric-label">${esc(e)}</div><div class="metric-value">${n}</div><div class="metric-sub">${pct(n,rows.length)}% del total</div></div>`).join('')}
-    </div>`)}
-    ${canalesLLC.length?mSection('ll_canal','LLCs por Canal',`<div class="metrics-grid">
-      ${canalesLLC.map(([c,n])=>`<div class="metric-card"><div class="metric-label">${esc(c)}</div><div class="metric-value">${n}</div><div class="metric-sub">${pct(n,rows.length)}% del total</div></div>`).join('')}
-    </div>`):''}
-    ${velHTML}`;
-}
-
-function renderMetricsSeguimientos(rows){
-  const agendados=rows.filter(r=>(r['Estado del Meeting']||'')&&(r['Estado del Meeting']||'').toLowerCase()!=='sin informaci\u00f3n').length;
-  const asistio=rows.filter(r=>{const m=(r['Estado del Meeting']||'').toLowerCase();return m.includes('asisti')&&!m.includes('no asisti')}).length;
-  const tasaPres=pct(asistio,agendados);
-  const reagendados=rows.filter(r=>(r['Estado del Meeting']||'').toLowerCase().includes('reagend')).length;
-  const sqlTotal=rows.filter(r=>(r['Estatus del Lead']||'').toLowerCase().includes('sql calificado')).length;
-  const noAsistio=rows.filter(r=>(r['Estado del Meeting']||'').toLowerCase().includes('no asisti')).length;
-
-  // No-show por canal
-  const canalNS={};
-  rows.forEach(r=>{
-    const c=r['Canal de Origen']||'Otro';
-    const m=(r['Estado del Meeting']||'').toLowerCase();
-    if(!m||m==='sin informaci\u00f3n')return;
-    if(!canalNS[c])canalNS[c]={total:0,noShow:0};
-    canalNS[c].total++;
-    if(m.includes('no asisti'))canalNS[c].noShow++;
-  });
-  const canalesNS=Object.entries(canalNS).filter(([c,d])=>d.total>=2&&!isJunkCanal(c)).sort((a,b)=>pct(b[1].noShow,b[1].total)-pct(a[1].noShow,a[1].total));
-
-  let nsHTML='';
-  if(canalesNS.length){
-    nsHTML=mSection('s_noshow','No-Show por Canal',`<div class="metrics-grid">
-      ${canalesNS.map(([c,d])=>{const p=pct(d.noShow,d.total);const cl=p>30?'red':p>15?'gold':'green';
-        return `<div class="metric-card ${cl}"><div class="metric-label">${esc(c)}</div><div class="metric-value">${p}%</div><div class="metric-sub">${d.noShow} de ${d.total}</div></div>`}).join('')}
-    </div>`);
-  }
-
-  return `
-    ${mSection('s_resumen','Seguimientos',`<div class="metrics-grid">
-      <div class="metric-card green"><div class="metric-label">Presentados</div><div class="metric-value">${asistio}</div><div class="metric-sub">${tasaPres}% de ${agendados} agendados</div></div>
-      <div class="metric-card gold"><div class="metric-label">Reagendados</div><div class="metric-value">${reagendados}</div></div>
-      <div class="metric-card cyan"><div class="metric-label">SQL Calificados</div><div class="metric-value">${sqlTotal}</div></div>
-      <div class="metric-card red"><div class="metric-label">No Asistieron</div><div class="metric-value">${noAsistio}</div><div class="metric-sub">Para retargeting</div></div>
-    </div>`)}
-    ${nsHTML}`;
-}
-
 function updateMetrics(){
   if(!DATA)return;
   const el=document.getElementById('metricsSection');
@@ -1193,6 +963,120 @@ function updateMetrics(){
   else if(currentTab==='leads') el.innerHTML=renderMetricsLeads(rows,DATA.llcs,DATA.seguimientos);
   else if(currentTab==='llcs') el.innerHTML=renderMetricsLLCs(rows,DATA.leads);
   else el.innerHTML=renderMetricsSeguimientos(rows);
+}
+
+function renderMetricsLeads(rows, allLLCs, allSeguimientos){
+  // La cabecera (KPIs, embudo, tendencia, comparadores) ya cuenta todo. Las
+  // secciones colapsables viejas se sacaron: duplicaban esos mismos numeros con
+  // nombres de canal que ya no existen ("Meta Form", "Landing Page 0") y varias
+  // calculaban sobre denominadores que dejaron de ser validos al reconstruir los
+  // datasets. Queda solo la comparativa mensual, que no esta en ningun otro lado.
+  return renderCabeceraLeads(rows,allLLCs,allSeguimientos)+renderComparativaMensual(DATA&&DATA.leads);
+}
+
+function renderMetricsLLCs(rows, allLeads){
+  const total=rows.length;
+  const et=e=>rows.filter(r=>(r['Etapa']||'')===e).length;
+  // "Confirmadas" mezclaba Apertura Confirmada (1) con Cuenta Bancaria Confirmada
+  // (129), que son dos cosas distintas. Se cuentan por separado.
+  const activas=et('Apertura Activa');
+  const enProceso=et('Documentación completada')+et('Filing Iniciado')+et('Apertura Cuenta Bancaria');
+  const bancaria=et('Cuenta Bancaria Confirmada')+et('Cuenta Bancaria Finalizada');
+  const perdidas=et('Apertura Perdida')+et('Cuenta Bancaria Perdida');
+  const conPago=rows.filter(r=>{const p=(r['Confirmación de pago']||'').toLowerCase();return p&&p!=='sin pago'}).length;
+
+  const kpis=`<div class="kpi-row">
+    ${kpiTile('LLCs',total,'en el período elegido','',serieMensual(rows))}
+    ${kpiTile('Activas',activas,pct(activas,total)+'% del total','',null)}
+    ${kpiTile('En proceso',enProceso,'documentación, filing o banco','',null)}
+    ${kpiTile('Cuenta bancaria lista',bancaria,pct(bancaria,total)+'% del total','',null)}
+    ${kpiTile('Con pago registrado',conPago,'⚠ '+pct(conPago,total)+'%. Ver Calidad de Datos','',null)}
+  </div>`;
+
+  // Etapas, de la más avanzada a la menos. Barras y no tarjetas: son partes de un
+  // mismo total y así se comparan de un vistazo.
+  const orden=['Cuenta Bancaria Finalizada','Cuenta Bancaria Confirmada','Apertura Cuenta Bancaria',
+    'Apertura Activa','Filing Iniciado','Documentación completada','Apertura Confirmada',
+    'Apertura Perdida','Cuenta Bancaria Perdida'];
+  const etapas=orden.map(e=>({etiqueta:e,valor:et(e),tip:`<b>${e}: ${et(e)}</b><br>${pct(et(e),total)}% del total`}))
+    .filter(x=>x.valor>0);
+  const cardEtapas=`<div class="chart-card">
+    <div class="chart-title">Etapas</div>
+    <div class="chart-note">De la más avanzada a la menos, sobre ${total} LLCs</div>
+    ${barrasHTML(etapas,{pctSobre:total})}
+  </div>`;
+
+  const cuenta={};
+  rows.forEach(r=>{const c=r['Canal de Origen']||SIN_DATO;cuenta[c]=(cuenta[c]||0)+1});
+  const canales=Object.entries(cuenta).sort((a,b)=>b[1]-a[1]).slice(0,8)
+    .map(([c,n])=>({etiqueta:c,valor:n,tip:`<b>${esc(c)}: ${n}</b>`}));
+  const cardCanal=`<div class="chart-card">
+    <div class="chart-title">LLCs por canal</div>
+    <div class="chart-note">Del registro histórico. No se puede recalcular: al convertirse, Zoho saca al lead del módulo</div>
+    ${barrasHTML(canales,{pctSobre:total})}
+  </div>`;
+
+  const perdidasCard=perdidas?`<div class="chart-card">
+    <div class="chart-title">Perdidas</div>
+    <div class="chart-note">Aperturas y cuentas bancarias caídas</div>
+    ${barrasHTML([{etiqueta:'Apertura Perdida',valor:et('Apertura Perdida')},{etiqueta:'Cuenta Bancaria Perdida',valor:et('Cuenta Bancaria Perdida')}].filter(x=>x.valor>0),{pctSobre:total})}
+  </div>`:'';
+
+  return kpis+`<div class="charts-row">${cardEtapas}${cardCanal}${perdidasCard}</div>`;
+}
+
+function renderMetricsSeguimientos(rows){
+  // El error de la version vieja: contaba como "agendados" a todos, incluidos los
+  // 1298 que nunca tuvieron meeting. Por eso los porcentajes daban tres veces mas
+  // bajos de lo real (16% en vez de 45%).
+  const CON_MEETING=['Asistió','No Asistió','Reagendó','Sin información'];
+  const agendaron=rows.filter(r=>CON_MEETING.includes(r['Estado del Meeting']));
+  const asistio=agendaron.filter(r=>r['Estado del Meeting']==='Asistió').length;
+  const noShow=agendaron.filter(r=>r['Estado del Meeting']==='No Asistió').length;
+  const reagendo=agendaron.filter(r=>r['Estado del Meeting']==='Reagendó').length;
+  const sinCargar=agendaron.filter(r=>r['Estado del Meeting']==='Sin información').length;
+  const sql=rows.filter(r=>(r['Estatus del Lead']||'').toLowerCase().includes('sql calificado')).length;
+  const enRet=rows.filter(r=>(r['Retargeting']||'No')!=='No').length;
+
+  const kpis=`<div class="kpi-row">
+    ${kpiTile('Agendaron',agendaron.length,'de '+rows.length+' en seguimiento','',null)}
+    ${kpiTile('Asistieron',asistio,pct(asistio,agendaron.length)+'% de los que agendaron','',null)}
+    ${kpiTile('No asistieron',noShow,pct(noShow,agendaron.length)+'% de los que agendaron','',null)}
+    ${kpiTile('SQL calificados',sql,pct(sql,rows.length)+'% del total','',null)}
+    ${kpiTile('En retargeting',enRet,pct(enRet,rows.length)+'% del total','',null)}
+  </div>`;
+
+  const pendientes=sinCargar?`<div class="chart-card">
+    <div class="chart-title">Meetings sin resultado cargado</div>
+    <div class="chart-note">El vendedor no marcó si la persona asistió. Sin esto, el no-show real es más alto que el que ves.</div>
+    ${barrasHTML([{etiqueta:'Sin cargar',valor:sinCargar},{etiqueta:'Con resultado',valor:agendaron.length-sinCargar}],{pctSobre:agendaron.length})}
+  </div>`:'';
+
+  // No-show por canal, sobre los que efectivamente agendaron. Antes el
+  // denominador incluia a todos y daba, por ejemplo, Meta Ads 20% cuando es 47%.
+  const m={};
+  agendaron.forEach(r=>{
+    const c=r['Canal de Origen']||SIN_DATO;
+    if(isJunkCanal(c))return;
+    if(!m[c])m[c]={n:0,ns:0};
+    m[c].n++;
+    if(r['Estado del Meeting']==='No Asistió')m[c].ns++;
+  });
+  const canales=Object.entries(m).filter(([,v])=>v.n>=3).sort((a,b)=>pct2(b[1].ns,b[1].n)-pct2(a[1].ns,a[1].n))
+    .map(([c,v])=>({etiqueta:c,valor:pct2(v.ns,v.n),tip:`<b>${esc(c)}</b><br>${v.ns} no asistieron de ${v.n} que agendaron`}));
+  const cardNS=canales.length?`<div class="chart-card">
+    <div class="chart-title">No-show por canal</div>
+    <div class="chart-note">Sobre los que agendaron, no sobre el total. Canales con 3 o más meetings.</div>
+    ${barrasHTML(canales)}
+  </div>`:'';
+
+  const reagCard=reagendo?`<div class="chart-card">
+    <div class="chart-title">Reagendaron</div>
+    <div class="chart-note">Pidieron mover la reunión</div>
+    ${barrasHTML([{etiqueta:'Reagendaron',valor:reagendo}],{pctSobre:agendaron.length})}
+  </div>`:'';
+
+  return kpis+`<div class="charts-row">${cardNS}${pendientes}${reagCard}</div>`;
 }
 
 // ===== BADGES =====
