@@ -1177,6 +1177,16 @@ function landingCell(r){
   return`<span title="Origen del dato: ${esc(o)}">${esc(v)}${dudoso?' <span class="badge badge-gold">?</span>':''}</span>`;
 }
 
+// La secuencia y en que mensaje va, que es la etapa real. Al pasar el mouse, la
+// fecha del proximo mensaje si esta cargada.
+function retargetingCell(r){
+  const v=r['Retargeting']||'No';
+  if(v==='No')return'<span class="badge badge-gray">No</span>';
+  const prox=r['Próximo mensaje'];
+  const tip=prox?` title="Próximo mensaje: ${esc(prox)}"`:'';
+  return`<span class="badge badge-gold"${tip}>${esc(v)}</span>`;
+}
+
 const OWNER_GENERICO='Start Companies Staff';
 function vendedorCell(v){
   if(!v)return`<span class="badge badge-gray">${SIN_DATO}</span>`;
@@ -1322,6 +1332,8 @@ function buildFilters(){
   } else {
     html+=multiSelectHTML('estatus','Estatus',getUniqueValues(DATA.seguimientos,'Estatus del Lead'));
     html+=multiSelectHTML('canal','Canal',getUniqueValues(DATA.seguimientos,'Canal de Origen'));
+    html+=multiSelectHTML('landing','Landing Origen',getUniqueValues(DATA.seguimientos,'Landing Origen'));
+    html+=multiSelectHTML('retargeting','Retargeting',getUniqueValues(DATA.seguimientos,'Retargeting'));
     html+=multiSelectHTML('meeting','Meeting',getUniqueValues(DATA.seguimientos,'Estado del Meeting'));
     html+=multiSelectHTML('vendedor','Vendedor',getUniqueValues(DATA.seguimientos,'Vendedor'));
     html+=filterPeriodo()+filterDate('desde','Desde')+filterDate('hasta','Hasta');
@@ -1395,6 +1407,8 @@ function getFilteredRowsBase(){
     return DATA.seguimientos.filter(r=>{
       if(!matchesMulti(r['Estatus del Lead'],'estatus'))return false;
       if(!matchesMulti(r['Canal de Origen'],'canal'))return false;
+      if(!matchesMulti(r['Landing Origen'],'landing'))return false;
+      if(!matchesMulti(r['Retargeting'],'retargeting'))return false;
       if(!matchesMulti(r['Estado del Meeting'],'meeting'))return false;
       if(!matchesMulti(r['Vendedor'],'vendedor'))return false;
       return matchesDateRange(r['Fecha \u00faltimo meeting']||r['Fecha ultimo meeting']);
@@ -1456,7 +1470,7 @@ function renderLeads(rows){
     <td>${esc(r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'])}</td>
     <td>${esc(r['Mail'])}</td>
     <td>${r['\u00bfAgend\u00f3?']==='S\u00ed'?'<span class="badge badge-green">S\u00ed</span>':'<span class="badge badge-gray">'+esc(r['\u00bfAgend\u00f3?'])+'</span>'}</td>
-    <td>${r['Retargeting']==='No'?'<span class="badge badge-gray">No</span>':'<span class="badge badge-gold">'+esc(r['Retargeting'])+'</span>'}</td>
+    <td>${retargetingCell(r)}</td>
     <td>${sinDato(r['Modalidad de cierre'])}</td>
     <td>${vendedorCell(r['Vendedor asignado'])}</td>
   </tr>`}).join('')}</tbody></table>`;
@@ -1485,7 +1499,7 @@ function renderSeguimientos(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
     <th></th>${th('Fecha \u00faltimo meeting','Fecha')}${th('Nombre','Nombre')}${th('Mail','Mail')}${th('Estatus del Lead','Estatus')}
-    ${th('Vendedor','Vendedor')}${th('Canal de Origen','Canal')}${th('Estado del Meeting','Meeting')}<th>Descripci\u00f3n</th>
+    ${th('Vendedor','Vendedor')}${th('Canal de Origen','Canal')}${th('Landing Origen','Landing Origen')}${th('Retargeting','Retargeting')}${th('Estado del Meeting','Meeting')}<th>Descripci\u00f3n</th>
   </tr></thead><tbody>${rows.map(r=>{
     const isSQL=(r['Estatus del Lead']||'').toLowerCase().includes('sql calificado');
     const nk='seg_'+(normEmail(r['Mail'])||(esc(r['Nombre'])+esc(r['Apellido'])));
@@ -1497,6 +1511,8 @@ function renderSeguimientos(rows){
     <td>${calificacionBadge(r['Estatus del Lead'])}</td>
     <td>${vendedorCell(r['Vendedor'])}</td>
     <td>${esc(r['Canal de Origen'])}</td>
+    <td>${landingCell(r)}</td>
+    <td>${retargetingCell(r)}</td>
     <td>${meetingBadge(r['Estado del Meeting'])}</td>
     <td style="white-space:normal;max-width:300px" title="${esc(r['Descripci\u00f3n']||r['Descripcion'])}">${esc(r['Descripci\u00f3n']||r['Descripcion']||'')}</td>
   </tr>`}).join('')}</tbody></table>`;
@@ -1613,14 +1629,14 @@ function getExportData(){
     return{headers,data};
   }
   if(currentTab==='leads'){
-    headers=['Fecha','Servicio','Nombre','Canal','Landing Origen','Calificacion','Telefono','Mail','Agendo','Retargeting','Modalidad de cierre','Modalidad de pago','Vendedor'];
-    data=rows.map(r=>[r['Fecha'],r['Servicio'],r['Nombre y Apellido'],r['Canal'],r['Landing Origen'],r['Calificaci\u00f3n']||r['Calificacion'],r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'],r['Mail'],r['\u00bfAgend\u00f3?'],r['Retargeting'],r['Modalidad de cierre'],r['Modalidad de pago'],r['Vendedor asignado']]);
+    headers=['Fecha','Servicio','Nombre','Canal','Landing Origen','Origen del dato','Calificacion','Telefono','Mail','Agendo','Retargeting','Proximo mensaje','Modalidad de cierre','Modalidad de pago','Vendedor'];
+    data=rows.map(r=>[r['Fecha'],r['Servicio'],r['Nombre y Apellido'],r['Canal'],r['Landing Origen'],r['Origen del dato'],r['Calificaci\u00f3n']||r['Calificacion'],r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'],r['Mail'],r['\u00bfAgend\u00f3?'],r['Retargeting'],r['Pr\u00f3ximo mensaje'],r['Modalidad de cierre'],r['Modalidad de pago'],r['Vendedor asignado']]);
   }else if(currentTab==='llcs'){
     headers=['Fecha','LLC','Etapa','Nombre','Email','Telefono','Canal','Vendedor','Pago'];
     data=rows.map(r=>[r['Fecha'],r['LLC'],r['Etapa'],r['Nombre'],r['Email'],r['Tel\u00e9fono']||r['Telefono'],r['Canal de Origen'],r['Vendedor'],r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago']]);
   }else{
-    headers=['Fecha','Nombre','Mail','Estatus','Vendedor','Canal','Meeting','Descripcion'];
-    data=rows.map(r=>[r['Fecha \u00faltimo meeting']||r['Fecha ultimo meeting'],(r['Nombre']||'')+' '+(r['Apellido']||''),r['Mail'],r['Estatus del Lead'],r['Vendedor'],r['Canal de Origen'],r['Estado del Meeting'],r['Descripci\u00f3n']||r['Descripcion']]);
+    headers=['Fecha','Nombre','Mail','Estatus','Vendedor','Canal','Landing Origen','Retargeting','Proximo mensaje','Meeting','Descripcion'];
+    data=rows.map(r=>[r['Fecha \u00faltimo meeting']||r['Fecha ultimo meeting'],(r['Nombre']||'')+' '+(r['Apellido']||''),r['Mail'],r['Estatus del Lead'],r['Vendedor'],r['Canal de Origen'],r['Landing Origen'],r['Retargeting'],r['Pr\u00f3ximo mensaje'],r['Estado del Meeting'],r['Descripci\u00f3n']||r['Descripcion']]);
   }
   return{headers,data};
 }

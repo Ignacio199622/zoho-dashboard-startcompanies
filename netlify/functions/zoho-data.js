@@ -406,12 +406,23 @@ function valorReal(v) {
   return Array.isArray(v) ? v.join(', ') : String(v);
 }
 
-// Which retargeting sequence the lead is in, if any.
+// En qué secuencia de retargeting está y en qué mensaje va, que es la etapa real:
+// "30 días" solo no dice si recién arrancó o si ya está por terminar.
 function estadoRetargeting(lead) {
-  if (lead.Nombre_retargeting) return String(lead.Nombre_retargeting);
-  if (lead.En_Nurturing === true) return 'Nurturing';
+  const msj = lead.N_mero_de_mensaje;
+  if (lead.Nombre_retargeting) {
+    return String(lead.Nombre_retargeting) + (msj ? ' · msj ' + msj : '');
+  }
+  if (lead.En_Nurturing === true) {
+    return 'Nurturing' + (lead.N_mero_de_mensaje_Nurturing ? ' · msj ' + lead.N_mero_de_mensaje_Nurturing : '');
+  }
   if (lead.Retargeting === true) return 'Sí (sin secuencia)';
   return 'No';
+}
+
+function proximoMensaje(lead) {
+  const f = lead.Fecha_Siguiente_Mensaje || lead.Siguiente_Mensaje;
+  return f ? String(f).slice(0, 10) : '';
 }
 
 // Start of the leads window: first day of the month N months back (N = 6 by
@@ -440,7 +451,8 @@ const LEAD_FIELDS = [
   'Lead_Source', 'Lead_Status', 'Created_Time', 'Description', 'Tipo',
   'Owner', 'Retargeting', 'Landing_Origen', 'Modalidad_de_Cierre',
   'Modalidad_de_Pago', 'Nombre_retargeting', 'Inicio_Retargeting',
-  'N_mero_de_mensaje', 'En_Nurturing', 'Qui_n_lo_trajo_a_la_llamada', 'fbclid',
+  'N_mero_de_mensaje', 'Fecha_Siguiente_Mensaje', 'N_mero_de_mensaje_Nurturing',
+  'En_Nurturing', 'Qui_n_lo_trajo_a_la_llamada', 'fbclid',
   'Calendario'   // el path de la landing: la atribución más precisa que hay
 ];
 
@@ -498,6 +510,7 @@ async function buildLeads(token) {
         'Móvil': l.Mobile || '',
         'Mail': l.Email || '',
         '¿Agendó?': agendo,
+        'Próximo mensaje': proximoMensaje(l),
         // Estado del meeting salido de los Events del propio lead. El embudo lo
         // calculaba cruzando mails contra la vista de Seguimientos, que cubre otra
         // ventana y solo alcanza a los leads con email: daba "asistieron" mas bajo
@@ -533,6 +546,10 @@ async function buildLeads(token) {
       'Estatus del Lead': l.Lead_Status || SIN_DATO,
       'Vendedor': (l.Owner && l.Owner.name) || '',
       'Canal de Origen': atr.canal || deriveCanal(l),
+      'Landing Origen': atr.landing || SIN_DATO,
+      'Origen del dato': atr.origen ? (atr.seguro ? atr.origen : atr.origen + ' (a confirmar)') : SIN_DATO,
+      'Retargeting': estadoRetargeting(l),
+      'Próximo mensaje': proximoMensaje(l),
       'Estado del Meeting': meetingState(evs),
       'Modalidad de Cierre': valorReal(l.Modalidad_de_Cierre)
     };
