@@ -149,7 +149,10 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 .btn-inv{float:right;background:none;border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:3px 10px;font-family:inherit;font-size:11px;cursor:pointer;transition:all .15s}
 .btn-inv:hover{border-color:var(--blue);color:var(--blue)}
 .sin-retorno{color:var(--red);font-weight:600}
-.inv-modal{max-width:620px}
+/* 6 meses x 5 canales no entran en pantalla: el modal se pasaba de largo y el
+   boton de Guardar quedaba fuera de vista. Solo scrollea la lista de campos. */
+.inv-modal{max-width:620px;max-height:86vh;display:flex;flex-direction:column}
+#invCampos{overflow-y:auto;flex:1;min-height:0;margin:4px -4px 0;padding:0 4px}
 .inv-mes{border-top:1px solid var(--border);padding:12px 0}
 .inv-mes:first-child{border-top:none}
 .inv-mes-tit{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
