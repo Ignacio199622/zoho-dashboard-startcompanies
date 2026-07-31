@@ -802,6 +802,42 @@ function comparadorCanales(rows){
   </div>`;
 }
 
+// ===== RENDIMIENTO POR LANDING =====
+// La pregunta de siempre es "cual landing trae mejor gente", y hasta ahora habia
+// que abrir la tabla para contestarla. Solo entran las que tienen landing real:
+// los de WhatsApp nunca pasaron por una, y meterlos ensuciaria la comparacion.
+function rendimientoLandings(rows){
+  const m={};
+  rows.forEach(r=>{
+    const l=r['Landing Origen'];
+    if(!l||l===SIN_DATO)return;
+    if(!m[l])m[l]={n:0,sql:0,ag:0,dudoso:0};
+    m[l].n++;
+    if(esSQL(r))m[l].sql++;
+    if(r['¿Agendó?']==='Sí')m[l].ag++;
+    if(/confirmar/i.test(r['Origen del dato']||''))m[l].dudoso++;
+  });
+  const filas=Object.entries(m).filter(([,v])=>v.n>=3).sort((a,b)=>b[1].n-a[1].n);
+  if(!filas.length)return'';
+  const mejor=Math.max(...filas.map(([,v])=>pct2(v.sql,v.n)));
+  const totalConLanding=filas.reduce((s,[,v])=>s+v.n,0);
+  return`<div class="chart-card">
+    <div class="chart-title">Rendimiento por landing</div>
+    <div class="chart-note">${totalConLanding} leads con landing identificada en el per&iacute;odo. Con 3 o m&aacute;s leads cada una.</div>
+    <div class="table-scroll"><table class="comp-table"><thead><tr>
+      <th>Landing</th><th class="num">Leads</th><th class="num">Agend&oacute;</th><th class="num">SQL</th><th class="num">% SQL</th>
+    </tr></thead><tbody>
+    ${filas.map(([l,v])=>{
+      const p=pct2(v.sql,v.n);
+      const cl=v.sql===0?'comp-cero':p>=mejor&&mejor>0?'comp-mejor':'';
+      const marca=v.dudoso===v.n?' <span class="badge badge-gold" title="Deducido del calendario usado, conviene confirmarlo">?</span>':'';
+      return`<tr class="${cl}"><td>${esc(l)}${marca}</td><td class="num">${v.n}</td><td class="num">${v.ag}</td>
+        <td class="num">${v.sql}</td><td class="num"><b>${p}%</b></td></tr>`;
+    }).join('')}
+    </tbody></table></div>
+  </div>`;
+}
+
 // ===== METRICS =====
 // Month-over-month view. Always computed over the FULL leads dataset (not the
 // active period filter), so it stays comparable no matter what is selected.
@@ -916,7 +952,7 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
 
   return lecturaDelPeriodo(rows,allLLCs)+renderAlertas()+kpis+
     `<div class="charts-row">${tendencia}${embudo}${porCanal}</div>`+
-    `<div class="charts-row">${comparadorCanales(rows)}</div>`;
+    `<div class="charts-row">${comparadorCanales(rows)}${rendimientoLandings(rows)}</div>`;
 }
 
 function renderMetricsLeads(rows, allLLCs, allSeguimientos){

@@ -276,6 +276,26 @@ const MAPA_CALENDARIO = [
   { re: /discontinuado/i, canal: 'WhatsApp / Manual', seguro: false }
 ];
 
+// Las etiquetas del CRM traen canal donde no hay ni landing ni calendario. Es lo
+// único que identifica a los leads de YouTube y a buena parte de los orgánicos.
+const MAPA_TAG = [
+  { re: /youtube/i, canal: 'YouTube' },
+  { re: /google/i, canal: 'Google Ads' },
+  { re: /reddit/i, canal: 'Reddit' },
+  { re: /organico|orgánico/i, canal: 'Web Orgánica' },
+  { re: /form nov meta|meta/i, canal: 'Meta Ads' }
+];
+
+function canalDeTag(tag) {
+  if (!tag) return null;
+  // Zoho manda las etiquetas como array de objetos o como texto separado por comas.
+  const texto = Array.isArray(tag) ? tag.map(t => (t && t.name) || t).join(',') : String(tag);
+  // "Lead Cal" / "LLC Apertura - Cal" sólo dicen que reservó por Cal.com, no de dónde
+  // vino, así que no cuentan como canal.
+  for (const m of MAPA_TAG) if (m.re.test(texto)) return m.canal;
+  return null;
+}
+
 // Lead_Source que ya nombran un canal real: no hace falta derivar nada.
 const FUENTE_ES_CANAL = {
   'Reddit Ads': 'Reddit',
@@ -332,12 +352,21 @@ function atribuir(lead, primerEvento) {
     return { canal: cal.canal, landing, origen: 'Calendario', seguro: cal.seguro };
   }
 
+  const fuente = FUENTE_ES_CANAL[lead.Lead_Source];
+  if (fuente) return { canal: fuente, landing, origen: 'Fuente', seguro: true };
+
+  const tag = canalDeTag(lead.Tag);
+  if (tag) return { canal: tag, landing, origen: 'Etiqueta', seguro: true };
+
+  // Último recurso: si trae identificador de Meta, vino de Meta aunque nadie haya
+  // cargado nada. No dice de qué anuncio, pero el canal es seguro.
+  if (lead.leadchain0__Social_Lead_ID || lead.fbclid || lead.fbc) {
+    return { canal: 'Meta Ads', landing, origen: 'ID de Meta', seguro: true };
+  }
+
   if (path && LANDING_AMBIGUA.includes(path)) {
     return { canal: null, landing, origen: 'Sin clasificar', seguro: false };
   }
-
-  const fuente = FUENTE_ES_CANAL[lead.Lead_Source];
-  if (fuente) return { canal: fuente, landing, origen: 'Fuente', seguro: true };
 
   return { canal: null, landing, origen: '', seguro: false };
 }
@@ -452,8 +481,9 @@ const LEAD_FIELDS = [
   'Owner', 'Retargeting', 'Landing_Origen', 'Modalidad_de_Cierre',
   'Modalidad_de_Pago', 'Nombre_retargeting', 'Inicio_Retargeting',
   'N_mero_de_mensaje', 'Fecha_Siguiente_Mensaje', 'N_mero_de_mensaje_Nurturing',
-  'En_Nurturing', 'Qui_n_lo_trajo_a_la_llamada', 'fbclid',
-  'Calendario'   // el path de la landing: la atribución más precisa que hay
+  'En_Nurturing', 'Qui_n_lo_trajo_a_la_llamada', 'fbclid', 'fbc',
+  'Calendario',   // el path de la landing: la atribución más precisa que hay
+  'Tag', 'leadchain0__Social_Lead_ID'   // canal donde no hay landing ni calendario
 ];
 
 // Build the `leads` dataset from CRM, restricted to the relevant recent window.
