@@ -1070,13 +1070,50 @@ function renderMetricsSeguimientos(rows){
     ${barrasHTML(canales,{sufijo:'%'})}
   </div>`:'';
 
+  // La palanca mas barata que hay: no cuesta un peso mas de pauta. Medido sobre
+  // 448 reuniones, el no-show trepa de 35% a 60% segun cuanto falte para la
+  // llamada, asi que acortar la ventana de agenda recupera gente sola.
+  const ORDEN_ANT=['Menos de 6h','6 a 24h','1 a 2 días','2 a 4 días','Más de 4 días'];
+  const a={};
+  agendaron.forEach(r=>{
+    const k=r['Anticipación'];if(!k)return;
+    if(!a[k])a[k]={n:0,ns:0};a[k].n++;
+    if(r['Estado del Meeting']==='No Asistió')a[k].ns++;
+  });
+  const antItems=ORDEN_ANT.filter(k=>a[k]&&a[k].n>=5).map(k=>({
+    etiqueta:k,valor:pct2(a[k].ns,a[k].n),
+    tip:`<b>${k}</b><br>${a[k].ns} no asistieron de ${a[k].n} reuniones`
+  }));
+  const cardAnt=antItems.length>=3?`<div class="chart-card">
+    <div class="chart-title">Cu&aacute;nto antes reservan, m&aacute;s aparecen</div>
+    <div class="chart-note">% de no-show seg&uacute;n cu&aacute;nto falta entre que reservan y la llamada. Acortar la ventana de agenda no cuesta pauta.</div>
+    ${barrasHTML(antItems,{sufijo:'%'})}
+  </div>`:'';
+
+  // Mismo corte pero por landing: sirve para saber si hay una pagina que trae
+  // gente que agenda y despues no aparece.
+  const lg={};
+  agendaron.forEach(r=>{
+    const k=r['Landing Origen'];if(!k||k===SIN_DATO)return;
+    if(!lg[k])lg[k]={n:0,ns:0};lg[k].n++;
+    if(r['Estado del Meeting']==='No Asistió')lg[k].ns++;
+  });
+  const lgItems=Object.entries(lg).filter(([,v])=>v.n>=5).sort((x,y)=>pct2(y[1].ns,y[1].n)-pct2(x[1].ns,x[1].n))
+    .map(([k,v])=>({etiqueta:k,valor:pct2(v.ns,v.n),tip:`<b>${esc(k)}</b><br>${v.ns} no asistieron de ${v.n}`}));
+  const cardLanding=lgItems.length?`<div class="chart-card">
+    <div class="chart-title">No-show por landing</div>
+    <div class="chart-note">Landings con 5 o m&aacute;s reuniones. Sirve para ver si hay una p&aacute;gina que trae gente que agenda y no aparece.</div>
+    ${barrasHTML(lgItems,{sufijo:'%'})}
+  </div>`:'';
+
   const reagCard=reagendo?`<div class="chart-card">
     <div class="chart-title">Reagendaron</div>
     <div class="chart-note">Pidieron mover la reunión</div>
     ${barrasHTML([{etiqueta:'Reagendaron',valor:reagendo}],{pctSobre:agendaron.length})}
   </div>`:'';
 
-  return kpis+`<div class="charts-row">${cardNS}${pendientes}${reagCard}</div>`;
+  return kpis+`<div class="charts-row">${cardAnt}${cardNS}${cardLanding}</div>`+
+    `<div class="charts-row">${pendientes}${reagCard}</div>`;
 }
 
 // ===== BADGES =====
