@@ -49,7 +49,10 @@ export default async (req) => {
   const rechazo = exigirAuth(headers, resp);
   if (rechazo) return json(JSON.parse(rechazo.body), rechazo.statusCode, resp);
 
-  const store = getStore('inversion');
+  // Lectura consistente: por defecto Blobs tarda unos segundos en devolver lo
+  // recién guardado, y el usuario que recarga después de cargar la inversión
+  // vería el tablero sin costos y pensaría que se perdió.
+  const store = getStore({ name: 'inversion', consistency: 'strong' });
 
   try {
     if (req.method === 'GET') {
