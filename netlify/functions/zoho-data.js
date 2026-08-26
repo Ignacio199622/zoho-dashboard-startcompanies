@@ -404,17 +404,34 @@ function deriveCanal(lead) {
   return normalizarCanal(lead.Lead_Source);
 }
 
+// OJO: esto es una etiqueta DERIVADA, no un campo de Zoho. Dos versiones
+// anteriores mentían y hubo que corregirlas; si se toca, sostener la regla de
+// que la etiqueta no puede afirmar nada que el dato no diga.
+//
+//   - "Form Nunca Agendó" se le ponía a CUALQUIERA que no hubiera agendado,
+//     dijera de dónde vino o no. De 870 así etiquetados, sólo 275 venían de un
+//     formulario: 433 eran de WhatsApp y 113 de YouTube. La palabra "Form" era
+//     inventada, así que se fue. Ahora dice sólo lo que pasó: nunca agendó.
+//   - "No Show" salía del Lead_Status `Retargeting`, asumiendo que estar en
+//     retargeting implicaba un no-show previo. Ya no: el retargeting también se
+//     usa con gente que nunca agendó (263 de los 565 etiquetados No Show no
+//     tenían NINGUNA reunión). Ahora No Show sale del meeting real, y de
+//     `Lead_Status = No Show` si Zoho lo dice explícitamente.
 function deriveCalificacion(lead, agendo, mstate) {
   const st = lead.Lead_Status;
   if (st === 'SQL Calificado') return 'SQL Calificado';
   if (st === 'No Calificado' || st === 'No Interesado') return 'No Calificado';
-  if (st === 'No Show') return 'No Show';
-  if (st === 'Retargeting') return 'No Show';            // retargeting implies a prior no-show
-  if (agendo === 'No') return st ? 'Form Nunca Agendó' : 'No se detectó';
-  // agendó === 'Sí'
+  // Que la reunión se haya caído lo dice el meeting, no el estado del lead.
   if (mstate === 'No Asistió') return 'No Show';
+  if (st === 'No Show') return 'No Show';
+  if (agendo === 'No') return st ? 'Nunca agendó' : 'Sin estado cargado';
+  // Agendó: de acá para abajo lo que manda es qué pasó con la reunión, que es
+  // un hecho, y no el estado del lead, que se reescribe. "Sin clasificar" le
+  // tocaba a 215 personas que en realidad habían asistido.
+  if (mstate === 'Asistió') return 'Asistió';
+  if (mstate === 'Reagendó') return 'Reagendó';
   if (st === 'En Calificación') return 'En Calificación';
-  return 'Sin clasificar';
+  return 'Sin resultado cargado';
 }
 
 function derivePosibilidad(lead, agendo) {
@@ -477,6 +494,41 @@ function proximoMensaje(lead) {
 // last 3 hours of the previous month in and the dashboard grew a bogus extra
 // month with a handful of leads in it.
 const AR_OFFSET_MS = 3 * 60 * 60 * 1000;
+// ---------------------------------------------------------------------------
+// Desde cuándo se puede confiar en cada cosa
+//
+// Medido sobre todo el histórico del CRM el 2026-08-25. El piso duro es
+// abril-2025: no hay ni un lead, evento ni deal anterior. Pero cada dato tiene
+// su propia fecha a partir de la cual está lo bastante cargado como para sacar
+// un porcentaje:
+//
+//   Reuniones y cierres   oct-2025   `Status_del_Meet` venía al 24-44% entre
+//                                    jun y sep-2025; desde octubre está sobre 70%.
+//   Vínculo del cierre    jul-2025   `Contact_Name` en Deals salta de 1% a 97%.
+//   Landing / calendario  jun-2026   `Calendario` y `Landing_Origen` no existían
+//                                    antes de may-2026 (0% en 13 meses seguidos).
+//   Estado del lead       nunca      92% de los leads viejos fueron modificados
+//                                    después del mes de alta (3.165 sólo en
+//                                    abr-2026). Lead_Status dice dónde está el
+//                                    lead HOY, no qué pasó ese mes: no sirve para
+//                                    comparar meses.
+//   ¿Quién lo vendió?     nunca      0% en 17 meses.
+//
+// Las reuniones se piden desde mucho más atrás que los leads a propósito: salen
+// de Events + Deals, que no se borran al convertir, así que dan 11 meses de
+// historia de cierres donde los leads sólo dan 6.
+// ---------------------------------------------------------------------------
+const DESDE = {
+  reuniones: '2025-10-01',
+  landing: '2026-06-01',
+  pisoCRM: '2025-04-01'
+};
+
+function reunionesWindowStart() {
+  const v = process.env.ZOHO_REUNIONES_SINCE || DESDE.reuniones;
+  return new Date(v + 'T00:00:00-03:00');
+}
+
 function leadsWindowStart() {
   if (process.env.ZOHO_LEADS_SINCE) {
     return new Date(process.env.ZOHO_LEADS_SINCE + 'T00:00:00-03:00');
@@ -509,9 +561,18 @@ async function buildLeads(token) {
 
   const since = leadsWindowStart();
 
-  // Events for in-window leads are created on/after the lead, so fetching events
-  // back to the same window covers them (with a small safety margin).
-  const evSince = new Date(since.getTime() - 7 * 24 * 60 * 60 * 1000);
+  // Los Events se piden desde la ventana de REUNIONES, que arranca mucho antes
+  // que la de leads: los eventos sobreviven a la conversión y son la única
+  // historia de cierres que hay. El margen de 7 días cubre el evento creado
+  // justo antes del corte para un lead que sí entra.
+  // Se piden desde el piso del CRM (abr-2025) y no desde la ventana de reuniones:
+  // son ~3.500 registros en total, cuestan ~18 páginas, y con eso la serie del
+  // formulario de Meta puede llegar hasta el principio en vez de arrancar en
+  // octubre. `reuniones` igual se recorta después a su propia ventana.
+  const evSince = new Date(Math.min(
+    since.getTime() - 7 * 24 * 60 * 60 * 1000,
+    new Date(DESDE.pisoCRM + 'T00:00:00-03:00').getTime()
+  ));
 
   const [leads, events] = await Promise.all([
     crmGetSince(token, 'Leads', leadFields, since),
@@ -530,6 +591,10 @@ async function buildLeads(token) {
     .filter(esLeadReal)
     .sort((a, b) => new Date(b.Created_Time) - new Date(a.Created_Time));
 
+  // Índice por id de lead con lo ya resuelto (canal, landing, retargeting), para
+  // que `reuniones` no tenga que recalcular la atribución lead por lead.
+  const infoLead = {};
+
   const rows = enVentana
     .map(l => {
       const evs = evById[l.id] || [];
@@ -540,6 +605,13 @@ async function buildLeads(token) {
       const primero = evs.slice().sort((a, b) =>
         new Date(a.Start_DateTime || a.Created_Time) - new Date(b.Start_DateTime || b.Created_Time))[0];
       const atr = atribuir(l, primero);
+      infoLead[l.id] = {
+        canal: atr.canal || deriveCanal(l),
+        landing: atr.landing || SIN_DATO,
+        retargeting: estadoRetargeting(l),
+        servicio: l.Tipo || '',
+        vendedor: (l.Owner && l.Owner.name) || ''
+      };
       return {
         'Fecha': fmtDate(l.Created_Time),
         'Servicio': l.Tipo || 'NO SE ASIGNÓ SERVICIO',
@@ -554,6 +626,11 @@ async function buildLeads(token) {
         'Móvil': l.Mobile || '',
         'Mail': l.Email || '',
         '¿Agendó?': agendo,
+        // El formulario instantáneo de Meta (campaña de clientes potenciales) no
+        // pasa por ninguna landing: la persona deja el dato dentro de Facebook o
+        // Instagram y después hay que traerla a agendar. Sin esta marca no se
+        // podían aislar, y son 566 de los últimos 6 meses con 12% de agendamiento.
+        'Formulario de Meta': l.leadchain0__Social_Lead_ID ? 'Sí' : 'No',
         'Próximo mensaje': proximoMensaje(l),
         // Estado del meeting salido de los Events del propio lead. El embudo lo
         // calculaba cruzando mails contra la vista de Seguimientos, que cubre otra
@@ -602,24 +679,239 @@ async function buildLeads(token) {
   }).sort((a, b) => new Date(b['Fecha último meeting']) - new Date(a['Fecha último meeting']));
 
   // `raw` feeds the data-quality tab; the dashboard itself only uses `rows`.
-  return { rows, raw: enVentana, seguimientos };
+  // `events` e `infoLead` los consume buildReuniones, que necesita TODOS los
+  // eventos (no sólo los de leads vivos) para no perder a los que ya cerraron.
+  return { rows, raw: enVentana, seguimientos, events, infoLead, since };
 }
+
+// ---------------------------------------------------------------------------
+// Reuniones
+//
+// Por qué existe este dataset aparte de `leads` y `seguimientos`: los dos se
+// arman del módulo Leads, y Zoho SACA al lead de Leads en cuanto se convierte en
+// cliente. O sea que las reuniones que terminaron en venta son justamente las
+// que faltan. Medido sobre 6 meses: el panel veía 276 asistencias cuando fueron
+// 384, y el no-show le daba 47% cuando el real es 42%. El sesgo no es aleatorio,
+// se lleva puesto exactamente al que compró.
+//
+// Los Events sí sobreviven a la conversión: cambian de módulo. `$se_module` dice
+// si el evento cuelga de un Lead (no cerró) o de un Contact (convirtió), y en el
+// segundo caso el id del contacto viene en `Who_Id`, no en `What_Id`.
+//
+// Con eso se puede calcular la tasa de cierre como la pidió Bauti: sobre
+// llamadas presentadas, no sobre leads calificados.
+// ---------------------------------------------------------------------------
+function idDelEvento(ev) {
+  if (ev['$se_module'] === 'Contacts') return (ev.Who_Id && ev.Who_Id.id) || null;
+  return (ev.What_Id && ev.What_Id.id) || (ev.Who_Id && ev.Who_Id.id) || null;
+}
+
+function estadoReunion(ev) {
+  const st = ev.Status_del_Meet;
+  if (!st) return 'Sin resultado';
+  if (st === 'No asistió') return 'No asistió';
+  if (st === 'Reagendar') return 'Reagendó';
+  if (st === 'Asistió sin interes') return 'Asistió sin interés';
+  if (st === 'Asistió') return 'Asistió';
+  return String(st);
+}
+
+// "Presentada" incluye "Asistió sin interés": la persona apareció. Que no haya
+// comprado es justamente lo que mide la tasa de cierre, no un motivo para
+// sacarla del denominador.
+function sePresento(estado) {
+  return estado === 'Asistió' || estado === 'Asistió sin interés';
+}
+
+function buildReuniones(events, deals, infoLead, fuentePorContacto) {
+  const since = reunionesWindowStart();
+  // Un contacto puede tener varios deals; alcanza con saber si tiene al menos uno
+  // y de qué tipo es el primero de apertura.
+  const dealsPorContacto = {};
+  deals.forEach(d => {
+    const id = d.Contact_Name && d.Contact_Name.id;
+    if (id) (dealsPorContacto[id] = dealsPorContacto[id] || []).push(d);
+  });
+
+  return events
+    .filter(ev => {
+      const f = ev.Start_DateTime || ev.Created_Time;
+      return f && new Date(f) >= since;
+    })
+    .map(ev => {
+      const mod = ev['$se_module'];
+      const id = idDelEvento(ev);
+      const info = (mod === 'Leads' && infoLead[id]) || null;
+      const misDeals = mod === 'Contacts' ? (dealsPorContacto[id] || []) : [];
+      const estado = estadoReunion(ev);
+      const presentada = sePresento(estado);
+      // Sólo tiene sentido preguntarse si cerró cuando la reunión se dio.
+      const cerro = presentada && misDeals.length > 0;
+      const apertura = misDeals.filter(d => (d.Type || '').toLowerCase().indexOf('apertura') === 0)[0];
+      // Al convertido se le corre la misma cascada de atribución que al lead, con
+      // el calendario de ESTA reunión, que es el dato que sobrevive en los dos
+      // lados. Sin esto los dos grupos hablan idiomas distintos.
+      // Tres casos, todos con la MISMA cascada de atribución para que los
+      // porcentajes sean comparables entre sí:
+      //   - lead dentro de la ventana de leads -> `info`, la cascada completa
+      //   - contacto convertido -> cascada con su Lead_Source y este calendario
+      //   - lead más viejo que la ventana de leads -> sólo el calendario del
+      //     evento, que es el único dato que tenemos de él (y está al 100%)
+      const atrEvento = info ? null
+        : atribuir({ Lead_Source: (mod === 'Contacts' && fuentePorContacto && fuentePorContacto[id]) || '' }, ev);
+      return {
+        'Fecha': fmtDate(ev.Start_DateTime || ev.Created_Time),
+        'Nombre': (ev.Who_Id && ev.Who_Id.name) || (ev.What_Id && ev.What_Id.name) || '',
+        'Calendario': limpiarTitulo(ev.Event_Title),
+        'Estado': estado,
+        '¿Se presentó?': presentada ? 'Sí' : (estado === 'Sin resultado' ? 'Sin resultado' : 'No'),
+        '¿Cerró?': presentada ? (cerro ? 'Sí' : 'No') : '',
+        'Servicio': apertura ? (apertura.Deal_Name || 'Apertura') : (misDeals[0] ? misDeals[0].Type || '' : ''),
+        // El retargeting sí se pierde al convertir: ese campo sólo existe en
+        // Leads y no se arrastra a Contactos.
+        'Canal': info ? info.canal : ((atrEvento && atrEvento.canal) || SIN_DATO),
+        'Landing Origen': info ? info.landing : ((atrEvento && atrEvento.landing) || SIN_DATO),
+        'Retargeting': info ? info.retargeting : '',
+        'Anticipación': anticipacion(ev),
+        'Estado del registro': mod === 'Contacts' ? 'Contacto' : (mod === 'Leads' ? 'Lead' : (mod || SIN_DATO))
+      };
+    })
+    // Las reuniones de prueba se agendan contra el CRM igual que las reales
+    // ("Prueba template agenda", "status meet agenda"), así que se filtran por
+    // nombre con la misma lista que los leads.
+    .filter(r => r['Nombre'] && !BASURA_TESTEO.some(re => re.test(r['Nombre'])))
+    .sort((a, b) => new Date(b.Fecha) - new Date(a.Fecha));
+}
+
+// ---------------------------------------------------------------------------
+// Serie del formulario de Meta (campaña de clientes potenciales)
+//
+// Es el único canal que se puede medir de punta a punta con una tasa honesta,
+// y por eso vale una serie propia: el lead del formulario se crea cuando la
+// persona deja el dato DENTRO de Meta, así que "cuántos de estos agendaron" es
+// una tasa de verdad.
+//
+// Con el resto no pasa: el registro de quien entra por la landing se crea RECIÉN
+// al reservar, así que su "tasa de agendamiento" da 90-100% siempre. No es una
+// tasa, es una clasificación. Por eso acá no se compara contra nada, se muestra
+// el embudo del formulario contra sí mismo mes a mes.
+//
+// Se pide con tres campos nada más para que traer 16 meses cueste poco, y va en
+// paralelo al resto de las llamadas.
+// ---------------------------------------------------------------------------
+const FORM_FIELDS = ['Created_Time', 'leadchain0__Social_Lead_ID', 'Lead_Source'].join(',');
+
+async function pullLeadsFormulario(token) {
+  const desde = new Date(DESDE.pisoCRM + 'T00:00:00-03:00');
+  return crmGetSince(token, 'Leads', FORM_FIELDS, desde, 60, 6);
+}
+
+function buildSerieFormMeta(leadsLigeros, events) {
+  // Un lead agendó si tiene al menos un Event colgando mientras seguía siendo
+  // Lead. Ojo: el que cerró ya salió del módulo, así que estos porcentajes
+  // quedan apenas por debajo del real (son ~168 cierres sobre miles de leads).
+  const eventosPorLead = {};
+  events.forEach(ev => {
+    if (ev['$se_module'] && ev['$se_module'] !== 'Leads') return;
+    const id = ev.What_Id && ev.What_Id.id;
+    if (id) (eventosPorLead[id] = eventosPorLead[id] || []).push(ev);
+  });
+
+  const sePresento = ev => ev.Status_del_Meet
+    && /asist/i.test(ev.Status_del_Meet) && !/no asist/i.test(ev.Status_del_Meet);
+
+  const meses = {};
+  leadsLigeros.forEach(l => {
+    if (!l.leadchain0__Social_Lead_ID || !l.Created_Time) return;
+    const mes = String(l.Created_Time).slice(0, 7);
+    const m = meses[mes] = meses[mes] || { mes, leads: 0, agendaron: 0, presentaron: 0 };
+    m.leads++;
+    const evs = eventosPorLead[l.id] || [];
+    if (evs.length) m.agendaron++;
+    if (evs.some(sePresento)) m.presentaron++;
+  });
+
+  return Object.keys(meses).sort().map(k => meses[k]);
+}
+
+// ---------------------------------------------------------------------------
+// Partners
+//
+// Casi la mitad de las aperturas las trae un partner, y el panel las mostraba
+// como "WhatsApp" u "Orgánica" porque ese es el canal por el que el partner
+// manda el mensaje, no de dónde vino el cliente.
+//
+// Se identifican por MAIL y TELÉFONO, nunca por nombre: el mismo partner está
+// cargado en el CRM como "Angel Andreu" y como "Comunicaciones Tax Solutions
+// Daniela Parra" (56 aperturas en jun-2026 entre los dos), y los dos contactos
+// comparten tax.solutions.latam@gmail.com. Con nombres habría que mantener una
+// lista de variantes que nunca termina.
+//
+// Esto es la red de seguridad, no la fuente de verdad: si el Deal tiene cargado
+// el campo `Partner` de Zoho, gana ese. A medida que el equipo lo complete, la
+// lista de acá abajo se va usando cada vez menos y se puede borrar.
+// ---------------------------------------------------------------------------
+const PARTNERS = [
+  { nombre: 'Angel Andreu / Tax Solutions', mails: ['tax.solutions.latam@gmail.com'], tels: ['584144676809', '34689417749'] },
+  { nombre: 'Giancarlos Weill', mails: ['giancarlosweill@gmail.com', 'supp@getnexomind.com'], tels: ['14099953371'] },
+  { nombre: 'Lucas Rayyan Carmona', mails: ['worldlegalconsulting@gmail.com'], tels: ['34639373551'] },
+  { nombre: 'Xavier Massana', mails: ['xmpoma@gmail.com'], tels: ['34624830341'] },
+  // Este está en el CRM como contacto "MaríaAugusta DaSilvaJorge"; el mail es el
+  // del partner. Mismo caso que Angel/Daniela: por eso la lista va por mail.
+  { nombre: 'Federico', mails: ['madeirasweethome7@gmail.com'], tels: ['351926402093'] }
+];
+
+// Los teléfonos se comparan por los últimos 8 dígitos: el mismo número aparece
+// con y sin prefijo de país, con espacios y con guiones.
+const ultimos8 = t => String(t || '').replace(/[^0-9]/g, '').slice(-8);
+
+function partnerDe(deal, contacto) {
+  const delCampo = deal && deal.Partner;
+  if (delCampo) return typeof delCampo === 'object' ? (delCampo.name || '') : String(delCampo);
+  const mail = String((contacto && contacto.Email) || '').trim().toLowerCase();
+  const tels = [contacto && contacto.Mobile, contacto && contacto.Phone].map(ultimos8).filter(Boolean);
+  for (const p of PARTNERS) {
+    if (mail && p.mails.indexOf(mail) !== -1) return p.nombre;
+    if (tels.some(t => p.tels.some(pt => pt.endsWith(t)))) return p.nombre;
+  }
+  return '';
+}
+
+// Lead_Source del CRM -> etiqueta única (el mismo canal está escrito de varias
+// formas y con mayúsculas distintas según quién cargó el registro).
+const CANAL_CRM = {
+  'whatsapp - start companies': 'WhatsApp',
+  'whatsapp': 'WhatsApp',
+  'landing page': 'Landing Page',
+  'web organic': 'Orgánica',
+  'web orgánica': 'Orgánica',
+  'referidos': 'Referido',
+  'referido': 'Referido',
+  'meta ads': 'Meta Ads',
+  'clientes actuales': 'Cliente actual'
+};
 
 // ---------------------------------------------------------------------------
 // LLCs desde el CRM
 //
 // Misma historia que Seguimientos: la vista de Analytics quedó al 22-jul. Las
 // filas y todas las columnas operativas salen ahora de Deals + Contacts en vivo.
-// El "Canal de Origen" es lo único que no se puede reconstruir (al convertirse,
-// Zoho saca al lead del módulo y se pierde el vínculo), así que se completa
-// contra la vista vieja cuando el mail coincide y si no queda "Sin dato".
+//
+// El "Canal de Origen" se resuelve en cascada, de lo más confiable a lo menos:
+//   1. partner (campo `Partner` del Deal, o mail/teléfono conocido)
+//   2. `Lead_Source` del contacto, que es el dato vivo del CRM
+//   3. la vista vieja de Analytics, sólo para el histórico que el CRM ya no tiene
+//   4. "Sin dato"
+// El paso 3 va último a propósito: esa vista trae valores como "Formulario
+// Directo" que no existen en ningún picklist del CRM, así que no puede pisar
+// a un Lead_Source real.
 // ---------------------------------------------------------------------------
 async function buildLLCs(token, deals, canalPorMail) {
   // Los contactos traen mail y teléfono; se piden por páginas hasta cubrir los
   // que referencian estos deals, con tope para no colgar la función.
   const necesarios = new Set(deals.map(d => d.Contact_Name && d.Contact_Name.id).filter(Boolean));
   const contactos = {};
-  const campos = ['Full_Name', 'Email', 'Phone', 'Mobile', 'Created_Time'].join(',');
+  const campos = ['Full_Name', 'Email', 'Phone', 'Mobile', 'Created_Time', 'Lead_Source'].join(',');
   // En lotes paralelos, igual que el resto: secuencial sumaba ~6s a la respuesta.
   const LOTE = 5;
   for (let page = 1; page <= 21 && necesarios.size > 0; page += LOTE) {
@@ -641,11 +933,20 @@ async function buildLLCs(token, deals, canalPorMail) {
     return 'Sin pago';
   };
 
-  return deals
+  const rows = deals
     .filter(d => (d.Type || '').toLowerCase().indexOf('apertura') === 0 || !d.Type)
     .map(d => {
       const c = (d.Contact_Name && contactos[d.Contact_Name.id]) || {};
       const mail = c.Email || '';
+      const partner = partnerDe(d, c);
+      // El mismo canal viene escrito de formas distintas en el CRM y en la vista
+      // de Analytics ("Web Organic" / "Orgánica"): si no se unifican, el panel
+      // los cuenta como dos canales separados.
+      const unificar = v => v ? (CANAL_CRM[String(v).trim().toLowerCase()] || String(v)) : '';
+      const delCRM = unificar(c.Lead_Source);
+      const delHistorico = unificar(canalPorMail[mail.trim().toLowerCase()]);
+      const canal = partner ? 'Partner · ' + partner
+        : (delCRM || delHistorico || SIN_DATO);
       return {
         'Fecha': fmtDate(d.Created_Time),
         'LLC': (d.Account_Name && d.Account_Name.name) || d.Deal_Name || '',
@@ -653,13 +954,31 @@ async function buildLLCs(token, deals, canalPorMail) {
         'Nombre': (d.Contact_Name && d.Contact_Name.name) || c.Full_Name || '',
         'Email': mail,
         'Teléfono': c.Mobile || c.Phone || d.Tel_fono || '',
-        'Canal de Origen': canalPorMail[mail.trim().toLowerCase()] || SIN_DATO,
+        'Canal de Origen': canal,
+        // Columnas nuevas: permiten agrupar Partner vs Directo sin parsear el
+        // texto del canal, y ver de qué partner se trata sin abrir la fila.
+        'Tipo de Origen': partner ? 'Partner' : (canal === SIN_DATO ? SIN_DATO : 'Directo'),
+        'Partner': partner || '',
         'Vendedor': (d.Quien_lo_vendio && d.Quien_lo_vendio.name) || (d.Owner && d.Owner.name) || '',
         'Confirmación de pago': pagoTexto(d)
       };
     })
     .filter(esRegistroReal)
     .sort((a, b) => new Date(b.Fecha) - new Date(a.Fecha));
+
+  // Los contactos se devuelven junto con las filas porque `reuniones` los
+  // necesita: cuando un lead convierte, su canal ya no está en Leads. Va el
+  // Lead_Source CRUDO a propósito, no el canal ya resuelto: `reuniones` tiene
+  // que atribuirlo con las MISMAS reglas que usa para los leads, o los dos
+  // grupos quedan en vocabularios distintos y el porcentaje de cierre por canal
+  // se vuelve una clasificación disfrazada de tasa (todo "Landing Page" cerró,
+  // todo "Meta Ads" no, porque cada valor viene de una población distinta).
+  const fuentePorContacto = {};
+  Object.keys(contactos).forEach(id => {
+    fuentePorContacto[id] = contactos[id].Lead_Source || '';
+  });
+
+  return { rows, fuentePorContacto };
 }
 
 // ---------------------------------------------------------------------------
@@ -686,7 +1005,7 @@ const CALIDAD_LEADS = [
 
 const DEAL_FIELDS = ['Created_Time', 'Deal_Name', 'Stage', 'Quien_lo_vendio', 'Landing_Origen',
   'Pago', 'Medios_de_pago', 'Producto', 'Estado_de_Registro', 'Fecha_de_constituci_n',
-  'Type', 'Account_Name', 'Contact_Name', 'Tel_fono', 'Owner'];
+  'Type', 'Account_Name', 'Contact_Name', 'Tel_fono', 'Owner', 'Partner'];
 
 const CALIDAD_DEALS = [
   { key: 'Quien_lo_vendio', label: '¿Quién lo vendió?' },
@@ -818,10 +1137,12 @@ exports.handler = async (event) => {
     // se pide una ventana larga para no perder ese histórico.
     const desdeLLCs = new Date(since.getTime() - 18 * 30 * 24 * 60 * 60 * 1000);
 
-    const [leadsData, deals, vistaLLCs] = await Promise.all([
+    const [leadsData, deals, vistaLLCs, leadsFormulario] = await Promise.all([
       buildLeads(token),
       crmGetSince(token, 'Deals', DEAL_FIELDS.join(','), desdeLLCs),
-      exportView(token, LLCS_VIEW_ID).catch(() => [])
+      exportView(token, LLCS_VIEW_ID).catch(() => []),
+      // Si esta falla, el panel pierde una tarjeta y nada más: no bloquea.
+      pullLeadsFormulario(token).catch(() => [])
     ]);
 
     const canalPorMail = {};
@@ -831,21 +1152,42 @@ exports.handler = async (event) => {
       if (m && c) canalPorMail[m] = c;
     });
 
-    const [llcs, seguimientos] = [await buildLLCs(token, deals, canalPorMail), leadsData.seguimientos];
+    const llcsData = await buildLLCs(token, deals, canalPorMail);
+    const [llcs, seguimientos] = [llcsData.rows, leadsData.seguimientos];
+
+    // Se arma con TODOS los deals (ventana larga), no sólo los del período: una
+    // reunión de marzo puede haber cerrado en mayo y sigue contando como cierre.
+    const reuniones = buildReuniones(leadsData.events, deals, leadsData.infoLead, llcsData.fuentePorContacto);
 
     const body = JSON.stringify({
       timestamp: new Date().toISOString(),
       leadsSince: since.toISOString(),  // start of the leads window (for the UI)
+      // Desde cuándo cada dato está lo bastante cargado como para sacar un
+      // porcentaje. El panel lo muestra en vez de dejar que el usuario asuma que
+      // todas las series arrancan en el mismo lugar.
+      desde: {
+        reuniones: reunionesWindowStart().toISOString(),
+        landing: DESDE.landing,
+        pisoCRM: DESDE.pisoCRM
+      },
       leads: leadsData.rows,
       llcs,
       seguimientos,
+      reuniones,
+      // Serie propia del formulario de Meta, desde el piso del CRM.
+      formMeta: {
+        desde: DESDE.pisoCRM,
+        meses: buildSerieFormMeta(leadsFormulario, leadsData.events)
+      },
       // Los llcs/seguimientos salen de vistas de Analytics que sincronizan solas:
       // si la sync se atrasa, el panel tiene que decirlo en vez de mostrar datos
       // viejos como si fueran de hoy.
       frescura: {
         leads: ultimaFecha(leadsData.raw, 'Created_Time'),
         llcs: ultimaFecha(llcs, 'Fecha'),
-        seguimientos: ultimaFecha(seguimientos, 'Fecha último meeting')
+        seguimientos: ultimaFecha(seguimientos, 'Fecha último meeting'),
+        // Sin esto la solapa Reuniones era la única sin aviso de atraso.
+        reuniones: ultimaFecha(reuniones.filter(r => new Date(r.Fecha) <= new Date()), 'Fecha')
       },
       calidad: {
         desde: since.toISOString(),

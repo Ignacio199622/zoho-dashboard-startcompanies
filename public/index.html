@@ -195,6 +195,23 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 .kpi-delta{font-size:12px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
 .kpi-up{color:var(--green)}.kpi-down{color:var(--red)}.kpi-flat{color:var(--text2)}
 .kpi-sub{font-size:11px;color:var(--text2)}
+/* Semaforo contra la meta cargada a mano. El borde izquierdo, no el fondo, para
+   que se lea de un vistazo sin tapar el numero. */
+.kpi-meta-ok{border-left:3px solid var(--green)}
+.kpi-meta-cerca{border-left:3px solid var(--gold)}
+.kpi-meta-mal{border-left:3px solid var(--red)}
+.kpi-meta{font-size:11px;font-weight:600;color:var(--text2)}
+.kpi-meta-ok .kpi-meta{color:var(--green)}
+.kpi-meta-cerca .kpi-meta{color:var(--gold)}
+.kpi-meta-mal .kpi-meta{color:var(--red)}
+.kpi-meta-off{font-size:11px;color:var(--text2);font-style:italic}
+.btn-metas{background:none;border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:5px 12px;font-family:inherit;font-size:11px;cursor:pointer;margin-bottom:16px}
+.btn-metas:hover{border-color:var(--cyan);color:var(--cyan)}
+.q-meta-ok{color:var(--green)}.q-meta-mal{color:var(--red)}
+.comp-total td{border-top:1px solid var(--border);background:rgba(1,201,226,.05)}
+.fuente-ok{color:var(--green);font-weight:600;white-space:nowrap}
+.fuente-medio{color:var(--gold);font-weight:600;white-space:nowrap}
+.fuente-malo{color:var(--red);font-weight:600;white-space:nowrap}
 .kpi-spark{margin-top:2px;height:28px;width:100%;display:block;overflow:visible}
 
 .charts-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:16px}
@@ -346,6 +363,7 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
     <div class="tabs">
       <button class="tab active" onclick="switchTab('leads')">Lead Totales</button>
       <button class="tab" onclick="switchTab('llcs')">LLCs Apertura</button>
+      <button class="tab" onclick="switchTab('reuniones')">Reuniones</button>
       <button class="tab" onclick="switchTab('seguimientos')">Seguimientos</button>
       <button class="tab" onclick="switchTab('calidad')">Calidad de Datos</button>
     </div>
@@ -382,11 +400,24 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
   <div class="note-modal-overlay" id="invOverlay" onclick="if(event.target===this)cerrarInversion()">
     <div class="note-modal inv-modal">
       <h3>Inversión en pauta</h3>
-      <div class="note-who">Cargá cuánto gastaste cada mes en cada canal. Con eso el tablero calcula el costo por lead y por SQL. Dejá vacío lo que no aplique.</div>
+      <div class="note-who">Cargá cuánto gastaste cada mes en cada canal. Con eso el tablero calcula el costo por lead y por cierre. Dejá vacío lo que no aplique.</div>
       <div id="invCampos"></div>
       <div class="note-modal-actions">
         <button class="note-cancel" onclick="cerrarInversion()">Cancelar</button>
         <button class="note-save" onclick="guardarInversion()">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Metas -->
+  <div class="note-modal-overlay" id="metasOverlay" onclick="if(event.target===this)cerrarMetas()">
+    <div class="note-modal inv-modal">
+      <h3>Metas mensuales</h3>
+      <div class="note-who">Sin meta, un KPI es un n&uacute;mero suelto. Cargá el objetivo y cada uno se pinta verde, amarillo o rojo contra &eacute;l. Dejá vacío lo que no quieras medir.</div>
+      <div id="metasCampos"></div>
+      <div class="note-modal-actions">
+        <button class="note-cancel" onclick="cerrarMetas()">Cancelar</button>
+        <button class="note-save" onclick="guardarMetas()">Guardar</button>
       </div>
     </div>
   </div>
@@ -470,8 +501,8 @@ function authHeaders(extra){
 
 // ===== STATE =====
 let DATA=null, currentTab='leads', filters={};
-const TITLES={leads:'Lead Totales y Flujos',llcs:'LLCs Apertura Mes Actual',seguimientos:'Seguimientos',calidad:'Calidad de Datos'};
-const TABS=['leads','llcs','seguimientos','calidad'];
+const TITLES={leads:'Lead Totales y Flujos',llcs:'LLCs Apertura Mes Actual',reuniones:'Reuniones, presentadas y cierres',seguimientos:'Seguimientos',calidad:'Calidad de Datos'};
+const TABS=['leads','llcs','reuniones','seguimientos','calidad'];
 
 // ===== DATE HELPERS =====
 function parseDate(str){if(!str)return null;const d=new Date(str);return isNaN(d)?null:d}
@@ -539,15 +570,16 @@ function serieMensual(rows,campoFecha,filtro){
 function calcularEmbudo(rows){
   const total=rows.length;
   const agendo=rows.filter(r=>r['¿Agendó?']==='Sí').length;
-  // Sale de los Events del propio lead, misma ventana y sin depender de que el
-  // lead tenga mail cargado. Cruzarlo contra Seguimientos hacia subir el embudo.
-  const asistio=rows.filter(r=>r['Estado del meeting']==='Asistió').length;
-  const sql=rows.filter(r=>(r['Calificación']||r['Calificacion']||'').toLowerCase().includes('sql calificado')).length;
+  // Llega hasta "agendaron" Y NADA MAS, a proposito.
+  // Los pasos siguientes (se presento / cerro) NO se pueden sacar de aca: Zoho
+  // saca al lead del modulo en cuanto compra, asi que las filas que leemos son
+  // justamente las que no cerraron. El embudo viejo mostraba "Asistieron 276"
+  // cuando eran 384, y terminaba en "SQL Calificado", un estado que ya nadie
+  // carga. Presentadas y cierres viven en la solapa Reuniones, que sale de
+  // Events y no pierde a nadie.
   return[
     {etapa:'Leads',valor:total},
-    {etapa:'Agendaron',valor:agendo},
-    {etapa:'Asistieron',valor:asistio},
-    {etapa:'SQL Calificado',valor:sql}
+    {etapa:'Agendaron',valor:agendo}
   ];
 }
 
@@ -580,11 +612,20 @@ function sparklineSVG(serie){
   </svg>`;
 }
 
-function kpiTile(label,valor,sub,delta,serie){
-  return`<div class="kpi-tile">
+// `campoMeta` es opcional: si se pasa y hay meta cargada para el mes elegido, el
+// tile se pinta contra ella. `valorMeta` es el numero comparable (a veces el KPI
+// muestra "18%" y hay que comparar 18, no la cadena).
+function kpiTile(label,valor,sub,delta,serie,campoMeta,valorMeta){
+  let clase='',linea='';
+  if(campoMeta){
+    const m=metaSub(campoMeta,valorMeta!==undefined?valorMeta:parseFloat(valor));
+    clase=m.clase?' '+m.clase:'';linea=m.texto;
+  }
+  return`<div class="kpi-tile${clase}">
     <div class="kpi-label">${esc(label)}</div>
     <div class="kpi-main"><span class="kpi-value">${valor}</span>${delta||''}</div>
     ${sub?`<div class="kpi-sub">${sub}</div>`:''}
+    ${linea?`<div class="kpi-sub">${linea}</div>`:''}
     ${serie?sparklineSVG(serie):''}
   </div>`;
 }
@@ -670,7 +711,26 @@ function mesLargo(k){const p=k.split('-');return MES_CORTO[parseInt(p[1],10)-1]+
 // El panel mostraba cuentas, y con cuentas no se decide nada. Esto arma en texto
 // que paso y donde esta la tension, con reglas explicitas sobre los mismos
 // numeros que se ven abajo. No dice nada que no salga de los datos.
+// `SQL Calificado` dejo de usarse en Zoho (1 lead en 17 meses). Se deja la
+// funcion porque si alguien vuelve a usar el estado, el panel lo muestra, pero
+// ya no cuelga de aca ninguna metrica de cabecera.
 function esSQL(r){return(r['Calificación']||r['Calificacion']||'').toLowerCase().includes('sql calificado')}
+
+// Las reuniones del periodo elegido. La solapa de Leads las usa para no tener
+// que deducir presentadas ni cierres del modulo Leads, que pierde a los que
+// compraron. OJO con la unidad: son REUNIONES del periodo, no leads que
+// entraron en el periodo, asi que no forman cohorte con los leads y por eso van
+// como tarjetas aparte y no como pasos del mismo embudo.
+function reunionesDelPeriodo(){
+  const v=ventanaActual();
+  const R=(DATA&&DATA.reuniones)||[];
+  if(!v)return R;
+  return R.filter(r=>{const d=parseDate(r['Fecha']);return d&&d>=v.desde&&d<=v.hasta});
+}
+function cierresDelPeriodo(){
+  const p=reunionesDelPeriodo().filter(r=>r['¿Se presentó?']==='Sí');
+  return{presentadas:p.length,cierres:p.filter(r=>r['¿Cerró?']==='Sí').length};
+}
 function diasDesde(fecha){
   const d=parseDate(fecha);if(!d)return 9999;
   return Math.floor((Date.now()-d.getTime())/86400000);
@@ -694,46 +754,66 @@ function lecturaDelPeriodo(rows,allLLCs){
   const pr=prev?enVentana(DATA.leads,prev):[];
   const hayComparacion=pr.length>0;
 
-  const sql=rows.filter(esSQL).length, pSql=pr.filter(esSQL).length;
-  const ns=rows.filter(r=>r['Estado del meeting']==='No Asistió').length;
-  const pNs=pr.filter(r=>r['Estado del meeting']==='No Asistió').length;
+  // La lectura habla de PLATA y de CIERRES, no de SQL: ese estado dejó de usarse
+  // en Zoho (1 lead en 17 meses) y una lectura montada encima decía cualquier
+  // cosa. Los cierres salen de `reuniones`, que ve a los que compraron.
+  const rp=cierresDelPeriodo();
+  const prevR=prev?((DATA&&DATA.reuniones)||[]).filter(r=>{const d=parseDate(r['Fecha']);return d&&d>=prev.desde&&d<=prev.hasta}):[];
+  const pPres=prevR.filter(r=>r['¿Se presentó?']==='Sí');
+  const pCierres=pPres.filter(r=>r['¿Cerró?']==='Sí').length;
+
+  const ns=reunionesDelPeriodo().filter(r=>r['Estado']==='No asistió').length;
+  const conRes=reunionesDelPeriodo().filter(r=>r['Estado']!=='Sin resultado').length;
   const vLeads=hayComparacion?variacion(rows.length,pr.length):null;
-  const vSql=hayComparacion?variacion(sql,pSql):null;
-  const vNs=hayComparacion?variacion(ns,pNs):null;
+  const vCierres=hayComparacion?variacion(rp.cierres,pCierres):null;
+  const vPres=hayComparacion?variacion(rp.presentadas,pPres.length):null;
 
   const partes=[];
+
+  // Abre con el costo por cierre si hay inversión cargada: es el número que se
+  // fijó como objetivo del trimestre, y flotaba al final de la pantalla.
+  const invTotal=(typeof inversionTotalDelPeriodo==='function')?inversionTotalDelPeriodo():null;
+  if(invTotal&&rp.cierres){
+    const cac=invTotal/rp.cierres;
+    const pInv=null;
+    partes.push(`Cada cliente costó <b>${money(cac)}</b> (${money(invTotal)} de pauta sobre ${rp.cierres} cierres).`);
+  }else if(invTotal&&!rp.cierres){
+    partes.push(`<span class="lectura-alerta">Se invirtieron <b>${money(invTotal)}</b> y no hay ningún cierre en el período.</span>`);
+  }
+
   partes.push(`Entraron <b>${rows.length} leads</b>${vLeads!==null?', '+frase(vLeads):''}.`);
 
-  // La tension que importa: mas volumen con menos calificados es peor, no mejor.
-  if(vLeads!==null&&vSql!==null&&vLeads>5&&vSql<-5){
-    partes.push(`Pero los <b>SQL bajaron ${Math.abs(vSql)}%</b> (${sql} contra ${pSql}): entra más gente y califica menos.`);
-  }else if(vSql!==null&&vSql>5){
-    partes.push(`Los <b>SQL subieron ${vSql}%</b> (${sql} contra ${pSql}).`);
+  // La tensión que importa: más volumen con menos cierres es peor, no mejor.
+  if(vLeads!==null&&vCierres!==null&&vLeads>5&&vCierres<-5){
+    partes.push(`Pero los <b>cierres bajaron ${Math.abs(vCierres)}%</b> (${rp.cierres} contra ${pCierres}): entra más gente y compra menos.`);
   }else{
-    partes.push(`Quedaron <b>${sql} SQL calificados</b>${vSql!==null?', '+frase(vSql):''}.`);
+    partes.push(`Se presentaron <b>${rp.presentadas} reuniones</b>${vPres!==null?', '+frase(vPres):''} y cerraron <b>${rp.cierres}</b>${vCierres!==null?', '+frase(vCierres):''} (${pct2(rp.cierres,rp.presentadas)}%).`);
   }
 
-  if(ns){
-    partes.push(`Hubo <b>${ns} no-shows</b>${vNs!==null?', '+frase(vNs):''}.`);
+  if(ns&&conRes){
+    partes.push(`El <b>${pct2(ns,conRes)}% no apareció</b> (${ns} de ${conRes} reuniones con resultado cargado).`);
   }
 
-  // Canal que califica y canal que trae volumen sin calificar: la decision de
-  // presupuesto sale de comparar esos dos.
+  // Qué canal cierra y qué canal trae volumen sin cerrar nunca: de comparar esos
+  // dos sale la decisión de presupuesto.
   const porCanal={};
-  rows.forEach(r=>{const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
-    if(!porCanal[c])porCanal[c]={n:0,sql:0};porCanal[c].n++;if(esSQL(r))porCanal[c].sql++});
-  const conVolumen=Object.entries(porCanal).filter(([,v])=>v.n>=20);
+  reunionesDelPeriodo().forEach(r=>{
+    if(r['¿Se presentó?']!=='Sí')return;
+    const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
+    if(!porCanal[c])porCanal[c]={n:0,c:0};porCanal[c].n++;if(r['¿Cerró?']==='Sí')porCanal[c].c++;
+  });
+  const conVolumen=Object.entries(porCanal).filter(([,v])=>v.n>=10);
   if(conVolumen.length>=2){
-    const mejor=conVolumen.slice().sort((a,b)=>pct2(b[1].sql,b[1].n)-pct2(a[1].sql,a[1].n))[0];
-    const secos=conVolumen.filter(([,v])=>v.sql===0).sort((a,b)=>b[1].n-a[1].n);
-    if(mejor[1].sql>0){
-      partes.push(`El canal que más califica es <b>${esc(mejor[0])}</b> (${mejor[1].sql} SQL de ${mejor[1].n} leads, ${pct2(mejor[1].sql,mejor[1].n)}%).`);
+    const mejor=conVolumen.slice().sort((a,b)=>pct2(b[1].c,b[1].n)-pct2(a[1].c,a[1].n))[0];
+    const secos=conVolumen.filter(([,v])=>v.c===0).sort((a,b)=>b[1].n-a[1].n);
+    if(mejor[1].c>0){
+      partes.push(`El canal que más cierra es <b>${esc(mejor[0])}</b> (${mejor[1].c} de ${mejor[1].n} presentadas, ${pct2(mejor[1].c,mejor[1].n)}%).`);
     }
     if(secos.length){
       const listados=secos.slice(0,2);
       const lista=listados.map(([c,v])=>`${esc(c)} (${v.n})`).join(' y ');
-      const verbo=listados.length>1?'trajeron':'trajo';   // concuerda con cuantos canales se nombran
-      partes.push(`<span class="lectura-alerta">${lista} ${verbo} volumen y <b>ningún SQL</b>.</span>`);
+      const verbo=listados.length>1?'tuvieron':'tuvo';
+      partes.push(`<span class="lectura-alerta">${lista} ${verbo} reuniones y <b>ningún cierre</b>.</span>`);
     }
   }
 
@@ -748,8 +828,9 @@ function lecturaDelPeriodo(rows,allLLCs){
 // clickearla filtra la tabla y te deja los registros exactos.
 const ALERTAS=[
   {id:'sql_sin_dueno',tab:'leads',tono:'red',
-   titulo:'SQL sin vendedor asignado',accion:'Leads calificados que no tiene nadie. Asignalos.',
-   test:r=>esSQL(r)&&r['Vendedor asignado']===OWNER_GENERICO},
+   titulo:'Agendaron y no tienen vendedor',accion:'Reservaron una llamada y siguen con el usuario genérico. Asignalos.',
+   // Acotada a 30 dias: sobre todo el historico son 539 y deja de ser una lista.
+   test:r=>r['¿Agendó?']==='Sí'&&r['Vendedor asignado']===OWNER_GENERICO&&diasDesde(r['Fecha'])<=30},
   {id:'llc_trabada',tab:'llcs',tono:'red',
    titulo:'Aperturas trabadas hace +30 días',accion:'En documentación o filing, sin avanzar.',
    test:r=>{const e=(r['Etapa']||'').toLowerCase();
@@ -760,14 +841,39 @@ const ALERTAS=[
   {id:'meeting_sin_estado',tab:'leads',tono:'gold',
    titulo:'Meetings sin resultado cargado',accion:'El vendedor no marcó si asistió. Últimos 14 días.',
    test:r=>r['¿Agendó?']==='Sí'&&r['Estado del meeting']==='Sin información'&&diasDesde(r['Fecha'])<=14},
-  {id:'seg_sql',tab:'seguimientos',tono:'cyan',
-   titulo:'Seguimientos marcados SQL',accion:'Calificados esperando cierre.',
-   test:r=>(r['Estatus del Lead']||'').toLowerCase().includes('sql calificado')}
+  {id:'seg_sin_resultado',tab:'reuniones',tono:'cyan',
+   titulo:'Reuniones sin resultado cargado',accion:'Nadie marcó si la persona apareció. Últimos 14 días.',
+   test:r=>r['Estado']==='Sin resultado'&&diasDesde(r['Fecha'])>=0&&diasDesde(r['Fecha'])<=14},
+  // La ventana de agendamiento dura UN DÍA. Medido sobre 2.157 leads que
+  // agendaron: el 93% reservó el mismo día que entró, y en todo el tiempo
+  // restante se suma apenas un 6% más. O sea que un lead de hoy sin reserva es
+  // la única lista que mueve la aguja, y mañana ya no sirve.
+  {id:'hoy_sin_agendar',tab:'leads',tono:'red',
+   titulo:'Entraron hoy y todavía no agendaron',accion:'El 93% de los que agendan lo hace el mismo día. Mandales el link ahora.',
+   test:r=>r['¿Agendó?']==='No'&&diasDesde(r['Fecha'])<=0},
+  {id:'ayer_sin_agendar',tab:'leads',tono:'gold',
+   titulo:'Entraron ayer y no agendaron',accion:'Última chance real: pasado el día 1 solo agenda el 6%.',
+   test:r=>r['¿Agendó?']==='No'&&diasDesde(r['Fecha'])===1},
+  // Los dos que faltaban para no tener que encontrarlos a ojo, como pasó en la
+  // reunión del 25-ago recorriendo la tabla fila por fila.
+  {id:'reunion_sin_retargeting',tab:'reuniones',tono:'red',
+   titulo:'Reuniones de los últimos 30 días sin retargeting',accion:'Se dieron o se cayeron y nadie les asignó secuencia.',
+   // Acotada a 30 días a propósito: sobre los 11 meses son 751 y eso ya no es
+   // una lista para hacer hoy, es un archivo.
+   test:r=>r['Estado del registro']==='Lead'&&(r['Retargeting']||'No')==='No'
+     &&r['Estado']!=='Sin resultado'&&r['¿Cerró?']!=='Sí'
+     &&diasDesde(r['Fecha'])>=0&&diasDesde(r['Fecha'])<=30},
+  {id:'meta_form_sin_agendar',tab:'leads',tono:'gold',
+   titulo:'Formulario de Meta sin agendar ni retargeting',accion:'Dejaron el dato en Meta, nunca agendaron y no están en ninguna secuencia.',
+   test:r=>r['Formulario de Meta']==='Sí'&&r['¿Agendó?']==='No'&&(r['Retargeting']||'No')==='No'}
 ];
 
 function datasetDe(tab){
   if(!DATA)return[];
-  return tab==='leads'?DATA.leads:tab==='llcs'?DATA.llcs:DATA.seguimientos;
+  if(tab==='leads')return DATA.leads;
+  if(tab==='llcs')return DATA.llcs;
+  if(tab==='reuniones')return DATA.reuniones||[];
+  return DATA.seguimientos;
 }
 
 // Las alertas miran TODO el histórico cargado, no el período elegido: son cosas
@@ -795,6 +901,109 @@ function abrirAlerta(id){
   updateMetrics();buildFilters();renderTable();
   const el=document.querySelector('.table-wrap');
   if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// ===== METAS =====
+// Un KPI sin referencia no dice nada: 12 SQL puede ser el mejor mes del anio o
+// el peor. La meta la carga una persona, no se deduce de la serie: sacarla del
+// promedio de los ultimos meses seria inventar el objetivo y despues medirse
+// contra el.
+let METAS={};
+const METAS_DEF=[
+  {campo:'llcs',        label:'LLCs del mes',            dir:'mas',  sufijo:'',    ayuda:'Aperturas cerradas por mes'},
+  {campo:'presentadas', label:'Reuniones presentadas',   dir:'mas',  sufijo:'',    ayuda:'Llamadas a las que la persona efectivamente aparece'},
+  {campo:'cierre',      label:'Tasa de cierre',          dir:'mas',  sufijo:'%',   ayuda:'Cierres sobre llamadas presentadas'},
+  {campo:'costoCierre', label:'Costo por cierre (máx.)', dir:'menos',sufijo:' USD',ayuda:'El CAC: cuánto es demasiado pagar por un cliente'},
+  {campo:'noShow',      label:'No-show (máximo)',        dir:'menos',sufijo:'%',   ayuda:'Porcentaje de reuniones que se caen'}
+];
+
+async function cargarMetas(){
+  try{
+    const r=await fetch('/.netlify/functions/metas',{headers:authHeaders()});
+    if(r.ok)METAS=await r.json();
+  }catch(e){/* sin metas el panel funciona igual, solo no pinta el semaforo */}
+}
+
+// El periodo elegido tiene que caer dentro de UN mes calendario para poder
+// compararlo con una meta mensual. Comparar seis meses acumulados contra una
+// meta de un mes daria siempre verde y no significaria nada.
+function mesUnicoDelPeriodo(){
+  const v=ventanaActual();
+  if(!v)return null;
+  const a=claveMes(v.desde),b=claveMes(v.hasta);
+  return a===b?a:null;
+}
+
+function metaDe(campo){
+  const mes=mesUnicoDelPeriodo();
+  if(!mes)return null;
+  const propia=METAS[mes]&&METAS[mes][campo];
+  const base=METAS['default']&&METAS['default'][campo];
+  const v=propia!==undefined?propia:base;
+  return (typeof v==='number'&&v>0)?v:null;
+}
+
+// Verde si cumple, ambar si esta a menos del 10% de cumplir, rojo si no.
+function estadoMeta(valor,meta,dir){
+  if(meta===null||meta===undefined||!isFinite(valor))return'';
+  const cumple=dir==='menos'?valor<=meta:valor>=meta;
+  if(cumple)return'kpi-meta-ok';
+  const cerca=dir==='menos'?valor<=meta*1.1:valor>=meta*0.9;
+  return cerca?'kpi-meta-cerca':'kpi-meta-mal';
+}
+
+// Devuelve la linea "meta: X" que va debajo del valor, o el motivo por el que no
+// se puede comparar. Nunca compara contra una meta que no aplica.
+function metaSub(campo,valor){
+  const def=METAS_DEF.find(d=>d.campo===campo);
+  if(!def)return{clase:'',texto:''};
+  const meta=metaDe(campo);
+  if(meta===null){
+    if(!mesUnicoDelPeriodo()&&(METAS['default']||Object.keys(METAS).length))
+      return{clase:'',texto:'<span class="kpi-meta-off">las metas son mensuales: elegí un mes</span>'};
+    return{clase:'',texto:''};
+  }
+  const cumple=def.dir==='menos'?valor<=meta:valor>=meta;
+  const signo=def.dir==='menos'?'máx.':'meta';
+  return{clase:estadoMeta(valor,meta,def.dir),
+    texto:`<span class="kpi-meta">${signo} ${meta}${def.sufijo} · ${cumple?'cumple':'falta'}</span>`};
+}
+
+// El boton vive debajo de los KPIs de cada solapa que tiene metas, no en una
+// pantalla de configuracion aparte: se ajusta el objetivo mirando el numero.
+function botonMetas(){
+  const hay=METAS['default']||Object.keys(METAS).length;
+  return`<button class="btn-metas" onclick="abrirMetas()">${hay?'Editar metas':'Fijar metas del mes'}</button>`;
+}
+function abrirMetas(){
+  const mes=mesUnicoDelPeriodo();
+  const fila=(clave,titulo,sub)=>`<div class="inv-mes"><div class="inv-mes-tit">${titulo}</div>
+    <div class="note-who" style="margin:0 0 8px">${sub}</div>
+    ${METAS_DEF.map(d=>`<label class="inv-fila"><span title="${esc(d.ayuda)}">${esc(d.label)}</span>
+      <input type="number" min="0" step="1" class="filter-select meta-input"
+        data-clave="${clave}" data-campo="${d.campo}"
+        value="${(METAS[clave]&&METAS[clave][d.campo])||''}" placeholder="${clave==='default'?'sin meta':'igual que la general'}"></label>`).join('')}
+  </div>`;
+  document.getElementById('metasCampos').innerHTML=
+    fila('default','Meta general','Aplica a todos los meses.')+
+    (mes?fila(mes,'Sólo '+mesLargo(mes),'Pisa la general nada más que en este mes. Dejalo vacío para usar la general.'):
+      '<div class="note-who">Para fijar una meta distinta a un mes puntual, elegí ese mes en el filtro de período y volvé a abrir esto.</div>');
+  document.getElementById('metasOverlay').classList.add('show');
+}
+function cerrarMetas(){document.getElementById('metasOverlay').classList.remove('show')}
+
+async function guardarMetas(){
+  const nuevo={};
+  document.querySelectorAll('.meta-input').forEach(i=>{
+    const k=i.dataset.clave,c=i.dataset.campo,v=parseFloat(i.value);
+    if(!isNaN(v)&&v>0){if(!nuevo[k])nuevo[k]={};nuevo[k][c]=v}
+  });
+  try{
+    const r=await fetch('/.netlify/functions/metas',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({metas:nuevo})});
+    if(!r.ok){const j=await r.json().catch(()=>({}));showError('No se pudieron guardar las metas: '+(j.error||('HTTP '+r.status)));return}
+    METAS=await r.json();
+    cerrarMetas();updateMetrics();
+  }catch(e){showError('Error guardando las metas: '+e.message)}
 }
 
 // ===== INVERSIÓN =====
@@ -872,42 +1081,75 @@ function inversionDe(canal){
 }
 function money(n){return '$'+Math.round(n).toLocaleString('es-AR')}
 
+// Toda la pauta del período, sumando los canales que tengan algo cargado. Sirve
+// para el costo por cliente de la lectura de arriba. Devuelve null si nadie
+// cargó inversión, para que la lectura simplemente no hable de plata en vez de
+// mostrar un cero que se lee como "no gastamos nada".
+function inversionTotalDelPeriodo(){
+  if(!INVERSION||!Object.keys(INVERSION).length)return null;
+  const canales=new Set();
+  Object.values(INVERSION).forEach(m=>Object.keys(m).forEach(c=>canales.add(c)));
+  let total=0,hay=false;
+  canales.forEach(c=>{const v=inversionDe(c);if(v!==null){total+=v;hay=true}});
+  return hay?total:null;
+}
+
 // ===== COMPARADOR DE CANALES =====
 // La tabla con la que se decide presupuesto: volumen contra calidad, lado a lado.
 function comparadorCanales(rows){
+  // Antes esta tabla se apoyaba en SQL Calificado. Ese estado dejo de usarse en
+  // el CRM: en seis meses hay UN lead con ese Lead_Status, contra 650 en
+  // "En Calificacion" y 453 en "Retargeting". Un costo por SQL calculado sobre
+  // eso no significa nada. El eje pasa a ser el cierre, que ahora si se puede
+  // contar (solapa Reuniones) y que es literalmente el CAC que hay que bajar.
   const m={};
   rows.forEach(r=>{
     const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
-    if(!m[c])m[c]={n:0,sql:0,ns:0,meet:0};
+    if(!m[c])m[c]={n:0,sql:0,pres:0,cierres:0,ns:0,meet:0};
     m[c].n++;
     if(esSQL(r))m[c].sql++;
-    if(r['Estado del meeting']==='No Asistió'){m[c].ns++;m[c].meet++}
-    else if(r['Estado del meeting']==='Asistió')m[c].meet++;
   });
-  const filas=Object.entries(m).filter(([,v])=>v.n>=5).sort((a,b)=>b[1].n-a[1].n);
+  // Presentadas y cierres salen de `reuniones`, no de los leads: los leads que
+  // cerraron ya no estan en el modulo. Se respeta el mismo periodo elegido.
+  const v=ventanaActual();
+  (DATA&&DATA.reuniones?DATA.reuniones:[]).forEach(r=>{
+    if(v){const d=parseDate(r['Fecha']);if(!d||d<v.desde||d>v.hasta)return}
+    const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
+    if(!m[c])m[c]={n:0,sql:0,pres:0,cierres:0,ns:0,meet:0};
+    if(r['Estado']==='No asistió'){m[c].ns++;m[c].meet++}
+    else if(r['¿Se presentó?']==='Sí'){m[c].meet++;m[c].pres++;if(r['¿Cerró?']==='Sí')m[c].cierres++}
+  });
+  const filas=Object.entries(m).filter(([,v2])=>v2.n>=5||v2.pres>=3).sort((a,b)=>b[1].n-a[1].n);
   if(!filas.length)return'';
-  const maxSql=Math.max(...filas.map(([,v])=>pct2(v.sql,v.n)));
   const hayInversion=filas.some(([c])=>inversionDe(c)!==null);
+  const metaCac=metaDe('costoCierre');
+  const sqlVivo=filas.some(([,v2])=>v2.sql>0);
   return`<div class="chart-card">
     <div class="chart-title">Comparador de canales
       <button class="btn-inv" onclick="abrirInversion()">${hayInversion?'Editar inversión':'Cargar inversión'}</button></div>
-    <div class="chart-note">Volumen contra calidad. Canales con 5 leads o más en el período.${hayInversion?'':' Cargá la inversión y aparece el costo por SQL.'}</div>
+    <div class="chart-note">Volumen contra cierre. Canales con 5 leads o 3 reuniones presentadas en el período.
+      Las reuniones y los cierres salen de la solapa Reuniones, que es la única que ve a los que convirtieron.
+      ${hayInversion?'':' Cargá la inversión y aparece el costo por lead y por cierre.'}
+      ${sqlVivo?'':'<br>El costo se mide <b>por cierre</b> y no por SQL porque «SQL Calificado» dejó de usarse en Zoho: hay un solo lead con ese estado en 17 meses.'}</div>
     <div class="table-scroll"><table class="comp-table"><thead><tr>
-      <th>Canal</th><th class="num">Leads</th><th class="num">SQL</th><th class="num">% SQL</th><th class="num">No-show</th>
-      ${hayInversion?'<th class="num">Inversión</th><th class="num">Costo/lead</th><th class="num">Costo/SQL</th>':''}
+      <th>Canal</th><th class="num">Leads</th><th class="num">Presentadas</th><th class="num">Cierres</th><th class="num">% cierre</th><th class="num">No-show</th>
+      ${hayInversion?'<th class="num">Inversión</th><th class="num">Costo/lead</th><th class="num">Costo por cierre</th>':''}
     </tr></thead><tbody>
-    ${filas.map(([c,v])=>{
-      const p=pct2(v.sql,v.n);
-      const cl=v.sql===0?'comp-cero':p>=maxSql&&maxSql>0?'comp-mejor':'';
+    ${filas.map(([c,v2])=>{
+      const p=pct2(v2.cierres,v2.pres);
+      const cl=v2.pres&&v2.cierres===0?'comp-cero':'';
       const inv=inversionDe(c);
-      // Sin SQL no hay costo por SQL: mostrar la inversion entera como si fuera el
-      // costo de uno seria mentir. Se marca como plata sin retorno.
-      const costoSql=inv===null?'':v.sql?money(inv/v.sql):'<span class="sin-retorno">sin SQL</span>';
+      // Sin cierres no hay costo por cierre: repartir la inversion entera como si
+      // fuera el costo de uno seria mentir. Se marca como plata sin retorno.
+      const cacNum=(inv!==null&&v2.cierres)?inv/v2.cierres:null;
+      const clsCac=(cacNum!==null&&metaCac!==null)?(cacNum<=metaCac?' q-meta-ok':' q-meta-mal'):'';
+      const cac=inv===null?'':v2.cierres?money(inv/v2.cierres):'<span class="sin-retorno">sin cierres</span>';
       const cols=hayInversion?`<td class="num">${inv===null?'—':money(inv)}</td>
-        <td class="num">${inv===null?'—':money(inv/v.n)}</td>
-        <td class="num"><b>${inv===null?'—':costoSql}</b></td>`:'';
-      return`<tr class="${cl}"><td>${esc(c)}</td><td class="num">${v.n}</td><td class="num">${v.sql}</td>
-        <td class="num"><b>${p}%</b></td><td class="num">${v.meet?pct2(v.ns,v.meet)+'%':'—'}</td>${cols}</tr>`;
+        <td class="num">${inv===null?'—':money(inv/v2.n)}</td>
+        <td class="num${clsCac}"><b>${inv===null?'—':cac}</b></td>`:'';
+      return`<tr class="${cl}"><td>${esc(c)}</td><td class="num">${v2.n}</td><td class="num">${v2.pres}</td>
+        <td class="num">${v2.cierres}</td><td class="num"><b>${v2.pres?p+'%':'—'}</b></td>
+        <td class="num">${v2.meet?pct2(v2.ns,v2.meet)+'%':'—'}</td>${cols}</tr>`;
     }).join('')}
     </tbody></table></div>
   </div>`;
@@ -918,36 +1160,45 @@ function comparadorCanales(rows){
 // que abrir la tabla para contestarla. Solo entran las que tienen landing real:
 // los de WhatsApp nunca pasaron por una, y meterlos ensuciaria la comparacion.
 function rendimientoLandings(rows){
+  // Igual que el comparador de canales: la columna de calidad pasa de SQL (un
+  // estado muerto) a presentadas y cierres, que salen de `reuniones` y por lo
+  // tanto sí ven a los que compraron.
   const m={};
   rows.forEach(r=>{
     const l=r['Landing Origen'];
     if(!l||l===SIN_DATO)return;
-    if(!m[l])m[l]={n:0,sql:0,ag:0,dudoso:0};
+    if(!m[l])m[l]={n:0,ag:0,pres:0,cierres:0,dudoso:0};
     m[l].n++;
-    if(esSQL(r))m[l].sql++;
     if(r['¿Agendó?']==='Sí')m[l].ag++;
     if(/confirmar/i.test(r['Origen del dato']||''))m[l].dudoso++;
   });
-  const filas=Object.entries(m).filter(([,v])=>v.n>=3).sort((a,b)=>b[1].n-a[1].n);
+  reunionesDelPeriodo().forEach(r=>{
+    const l=r['Landing Origen'];
+    if(!l||l===SIN_DATO)return;
+    if(!m[l])m[l]={n:0,ag:0,pres:0,cierres:0,dudoso:0};
+    if(r['¿Se presentó?']==='Sí'){m[l].pres++;if(r['¿Cerró?']==='Sí')m[l].cierres++}
+  });
+  const filas=Object.entries(m).filter(([,v])=>v.n>=3||v.pres>=3).sort((a,b)=>(b[1].n+b[1].pres)-(a[1].n+a[1].pres));
   if(!filas.length)return'';
-  const mejor=Math.max(...filas.map(([,v])=>pct2(v.sql,v.n)));
   const totalConLanding=filas.reduce((s,[,v])=>s+v.n,0);
   return`<div class="chart-card">
     <div class="chart-title">Rendimiento por landing</div>
-    <div class="chart-note">${totalConLanding} leads con landing identificada en el per&iacute;odo. Con 3 o m&aacute;s leads cada una.</div>
+    <div class="chart-note">${totalConLanding} leads con landing identificada en el per&iacute;odo. Con 3 leads o 3 reuniones cada una.
+      La landing solo est&aacute; cargada desde <b>jun 2026</b>: contra meses anteriores no es comparable.</div>
     <div class="table-scroll"><table class="comp-table"><thead><tr>
-      <th>Landing</th><th class="num">Leads</th><th class="num">Agend&oacute;</th><th class="num">SQL</th><th class="num">% SQL</th>
+      <th>Landing</th><th class="num">Leads</th><th class="num">Agend&oacute;</th><th class="num">Presentadas</th><th class="num">Cierres</th><th class="num">% cierre</th>
     </tr></thead><tbody>
     ${filas.map(([l,v])=>{
-      const p=pct2(v.sql,v.n);
-      const cl=v.sql===0?'comp-cero':p>=mejor&&mejor>0?'comp-mejor':'';
-      const marca=v.dudoso===v.n?' <span class="badge badge-gold" title="Deducido del calendario usado, conviene confirmarlo">?</span>':'';
+      const p=pct2(v.cierres,v.pres);
+      const cl=v.pres&&v.cierres===0?'comp-cero':'';
+      const marca=v.dudoso&&v.dudoso===v.n?' <span class="badge badge-gold" title="Deducido del calendario usado, conviene confirmarlo">?</span>':'';
       return`<tr class="${cl}"><td>${esc(l)}${marca}</td><td class="num">${v.n}</td><td class="num">${v.ag}</td>
-        <td class="num">${v.sql}</td><td class="num"><b>${p}%</b></td></tr>`;
+        <td class="num">${v.pres}</td><td class="num">${v.cierres}</td><td class="num"><b>${v.pres?p+'%':'—'}</b></td></tr>`;
     }).join('')}
     </tbody></table></div>
   </div>`;
 }
+
 
 // ===== METRICS =====
 // Month-over-month view. Always computed over the FULL leads dataset (not the
@@ -988,7 +1239,7 @@ function renderComparativaMensual(allLeads){
     }
     return `<div class="metric-card${cls}"><div class="metric-label">${label}${delta?' · '+delta:''}</div>
       <div class="metric-value">${d.total}</div>
-      <div class="metric-sub">${d.agendo} agendaron (${pct(d.agendo,d.total)}%) · ${d.sql} SQL · ${d.noShow} no show</div></div>`;
+      <div class="metric-sub">${d.agendo} agendaron (${pct(d.agendo,d.total)}%) · ${d.noShow} no show</div></div>`;
   }).join('');
   return mSection('l_meses','Comparativa Mensual (leads)',`<div class="metrics-grid">${cards}</div>`);
 }
@@ -996,36 +1247,46 @@ function renderComparativaMensual(allLeads){
 // Cabecera de la solapa de leads: lo que tiene que entenderse sin hacer un clic.
 function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
   const emb=calcularEmbudo(rows);
-  const total=emb[0].valor,agendo=emb[1].valor,asistio=emb[2].valor,sql=emb[3].valor;
+  const total=emb[0].valor,agendo=emb[1].valor;
+  const nunca=total-agendo;
+  // Presentadas y cierres salen de `reuniones`, no de estas filas. Son otra
+  // unidad (reuniones del período, no leads del período) y por eso van como
+  // tarjetas propias y no como pasos del embudo de arriba.
+  const rp=cierresDelPeriodo();
   // Metrica propia, no un paso del embudo: las LLCs del periodo se cuentan por su
   // fecha, no cruzandolas con los leads (ese cruce no existe, ver calcularEmbudo).
   const llc=enVentana(allLLCs||[],ventanaActual()).length;
 
   // Mismas cuentas sobre la ventana inmediatamente anterior, para los deltas.
   const prev=ventanaAnterior();
-  let pTotal=null,pAgendoTasa=null,pAsistio=null,pSql=null,pLlc=null;
+  let pTotal=null,pAgendoTasa=null,pNunca=null,pLlc=null,pPres=null,pCierres=null;
   if(prev){
     const pr=enVentana(DATA.leads,prev);
     const pe=calcularEmbudo(pr);
     pTotal=pe[0].valor;
     pAgendoTasa=pct(pe[1].valor,pe[0].valor);
-    pAsistio=pe[2].valor;
-    pSql=pe[3].valor;
+    pNunca=pe[0].valor-pe[1].valor;
     pLlc=enVentana(allLLCs||[],prev).length;
+    const rPrev=((DATA&&DATA.reuniones)||[]).filter(r=>{const d=parseDate(r['Fecha']);return d&&d>=prev.desde&&d<=prev.hasta});
+    const presPrev=rPrev.filter(r=>r['¿Se presentó?']==='Sí');
+    pPres=presPrev.length;
+    pCierres=presPrev.filter(r=>r['¿Cerró?']==='Sí').length;
   }
 
   const serieLeads=serieMensual(DATA.leads);
-  const serieSQL=serieMensual(DATA.leads,'Fecha',r=>(r['Calificación']||'').toLowerCase().includes('sql calificado'));
-  const serieAsistio=serieMensual(DATA.leads,'Fecha',r=>r['Estado del meeting']==='Asistió');
+  const serieNunca=serieMensual(DATA.leads,'Fecha',r=>r['¿Agendó?']==='No');
+  const seriePres=serieMensual((DATA&&DATA.reuniones)||[],'Fecha',r=>r['¿Se presentó?']==='Sí');
+  const serieCierres=serieMensual((DATA&&DATA.reuniones)||[],'Fecha',r=>r['¿Cerró?']==='Sí');
   const serieLLC=serieMensual(DATA.llcs||[]);
   const tasa=pct(agendo,total);
 
   const kpis=`<div class="kpi-row">
     ${kpiTile('Leads',total,'en el per&iacute;odo elegido',deltaHTML(total,pTotal),serieLeads)}
     ${kpiTile('Tasa de agendamiento',tasa+'%','⚠ '+agendo+' de '+total+'. Ver la nota del embudo',deltaHTML(tasa,pAgendoTasa),null)}
-    ${kpiTile('Asistieron',asistio,pct(asistio,agendo)+'% de los que agendaron',deltaHTML(asistio,pAsistio),serieAsistio)}
-    ${kpiTile('SQL Calificados',sql,pct(sql,total)+'% de los leads',deltaHTML(sql,pSql),serieSQL)}
-    ${kpiTile('LLCs abiertas',llc,'en el per&iacute;odo, medidas aparte',deltaHTML(llc,pLlc),serieLLC)}
+    ${kpiTile('Nunca agendaron',nunca,pct(nunca,total)+'% de los leads. El 93% de los que agendan lo hace el mismo d&iacute;a',deltaHTML(nunca,pNunca),serieNunca)}
+    ${kpiTile('Reuniones presentadas',rp.presentadas,'del per&iacute;odo, sale de la solapa Reuniones',deltaHTML(rp.presentadas,pPres),seriePres,'presentadas',rp.presentadas)}
+    ${kpiTile('Cerraron',rp.cierres,pct(rp.cierres,rp.presentadas)+'% de las presentadas',deltaHTML(rp.cierres,pCierres),serieCierres)}
+    ${kpiTile('LLCs abiertas',llc,'en el per&iacute;odo, medidas aparte',deltaHTML(llc,pLlc),serieLLC,'llcs',llc)}
   </div>`;
 
   // Embudo: barras horizontales con el % de paso respecto del escalon anterior,
@@ -1036,8 +1297,9 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
     tip:`<b>${e.etapa}: ${e.valor}</b>`+(i?`<br>${pct2(e.valor,emb[i-1].valor)}% de ${emb[i-1].etapa.toLowerCase()}`:'')
   }));
   const embudo=`<div class="chart-card">
-    <div class="chart-title">Embudo</div>
-    <div class="chart-note">Cada barra, sobre el total de leads. Llega hasta SQL porque Zoho saca al lead del m&oacute;dulo cuando se convierte en LLC.<br>
+    <div class="chart-title">Del lead a la reserva</div>
+    <div class="chart-note">Llega hasta &laquo;agendaron&raquo; y no m&aacute;s, a prop&oacute;sito: Zoho saca al lead del m&oacute;dulo apenas compra, as&iacute; que estas filas son justo las que <b>no</b> cerraron.
+    Presentadas y cierres est&aacute;n arriba y en la solapa <b>Reuniones</b>, que sale de los Events y no pierde a nadie.<br>
     <span style="color:var(--gold)">&#9888; &laquo;Agendaron&raquo; todav&iacute;a no es una conversi&oacute;n real: quien agenda entra como un registro nuevo (Landing Page / Web Org&aacute;nica) en vez de marcarse sobre su lead de WhatsApp o Meta. Por eso los canales dan 0% o 100% y nunca algo en el medio.</span></div>
     ${barrasHTML(embudoItems,{rampa:true,pctSobre:total})}
   </div>`;
@@ -1061,9 +1323,10 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
   // veria literal ("hist&oacute;rico").
   const tendencia=tendenciaHTML(serieLeads,'Leads por mes','Sobre todo el histórico cargado, sin importar el filtro de período');
 
-  return lecturaDelPeriodo(rows,allLLCs)+renderAlertas()+kpis+
+  return lecturaDelPeriodo(rows,allLLCs)+renderAlertas()+kpis+botonMetas()+
     `<div class="charts-row">${tendencia}${embudo}${porCanal}</div>`+
-    `<div class="charts-row">${comparadorCanales(rows)}${rendimientoLandings(rows)}</div>`;
+    `<div class="charts-row">${comparadorCanales(rows)}${rendimientoLandings(rows)}</div>`+
+    `<div class="charts-row">${renderFormMeta()}</div>`;
 }
 
 function updateMetrics(){
@@ -1073,6 +1336,7 @@ function updateMetrics(){
   if(currentTab==='calidad') el.innerHTML=renderMetricsCalidad();
   else if(currentTab==='leads') el.innerHTML=renderMetricsLeads(rows,DATA.llcs,DATA.seguimientos);
   else if(currentTab==='llcs') el.innerHTML=renderMetricsLLCs(rows,DATA.leads);
+  else if(currentTab==='reuniones') el.innerHTML=renderMetricsReuniones(rows);
   else el.innerHTML=renderMetricsSeguimientos(rows);
 }
 
@@ -1097,7 +1361,7 @@ function renderMetricsLLCs(rows, allLeads){
   const conPago=rows.filter(r=>{const p=(r['Confirmación de pago']||'').toLowerCase();return p&&p!=='sin pago'}).length;
 
   const kpis=`<div class="kpi-row">
-    ${kpiTile('LLCs',total,'en el período elegido','',serieMensual(rows))}
+    ${kpiTile('LLCs',total,'en el período elegido','',serieMensual(rows),'llcs',total)}
     ${kpiTile('Activas',activas,pct(activas,total)+'% del total','',null)}
     ${kpiTile('En proceso',enProceso,'documentación, filing o banco','',null)}
     ${kpiTile('Cuenta bancaria lista',bancaria,pct(bancaria,total)+'% del total','',null)}
@@ -1133,7 +1397,7 @@ function renderMetricsLLCs(rows, allLeads){
     ${barrasHTML([{etiqueta:'Apertura Perdida',valor:et('Apertura Perdida')},{etiqueta:'Cuenta Bancaria Perdida',valor:et('Cuenta Bancaria Perdida')}].filter(x=>x.valor>0),{pctSobre:total})}
   </div>`:'';
 
-  return kpis+`<div class="charts-row">${cardEtapas}${cardCanal}${perdidasCard}</div>`;
+  return kpis+botonMetas()+`<div class="charts-row">${cardEtapas}${cardCanal}${perdidasCard}</div>`;
 }
 
 function renderMetricsSeguimientos(rows){
@@ -1153,9 +1417,19 @@ function renderMetricsSeguimientos(rows){
     ${kpiTile('Agendaron',agendaron.length,'de '+rows.length+' en seguimiento','',null)}
     ${kpiTile('Asistieron',asistio,pct(asistio,agendaron.length)+'% de los que agendaron','',null)}
     ${kpiTile('No asistieron',noShow,pct(noShow,agendaron.length)+'% de los que agendaron','',null)}
-    ${kpiTile('SQL calificados',sql,pct(sql,rows.length)+'% del total','',null)}
+    ${kpiTile('Nunca agendaron',rows.length-agendaron.length,pct(rows.length-agendaron.length,rows.length)+'% del total','',null)}
     ${kpiTile('En retargeting',enRet,pct(enRet,rows.length)+'% del total','',null)}
   </div>`;
+
+  // Esta solapa se arma del modulo Leads, y Zoho saca de ahi al que convirtio.
+  // O sea que el sesgo no es aleatorio: se lleva justo a los que asistieron y
+  // compraron, y el no-show que sale aca queda mas alto que el real (47% contra
+  // 42% medido sobre 6 meses). Decirlo, en vez de dejar que el numero se lea
+  // como si fuera el definitivo.
+  const avisoSesgo=`<div class="chart-note" style="color:var(--gold);margin-bottom:14px">
+    &#9888; Estos porcentajes salen del m&oacute;dulo Leads, que ya no tiene a los que compraron: Zoho los pasa a Contactos al convertir.
+    El no-show ac&aacute; queda <b>m&aacute;s alto que el real</b> porque falta justo el que asisti&oacute; y cerr&oacute;.
+    Para el n&uacute;mero sin sesgo, mir&aacute; la solapa <b>Reuniones</b>.</div>`;
 
   const pendientes=sinCargar?`<div class="chart-card">
     <div class="chart-title">Meetings sin resultado cargado</div>
@@ -1223,7 +1497,7 @@ function renderMetricsSeguimientos(rows){
     ${barrasHTML([{etiqueta:'Reagendaron',valor:reagendo}],{pctSobre:agendaron.length})}
   </div>`:'';
 
-  return kpis+`<div class="charts-row">${cardAnt}${cardNS}${cardLanding}</div>`+
+  return kpis+avisoSesgo+`<div class="charts-row">${cardAnt}${cardNS}${cardLanding}</div>`+
     `<div class="charts-row">${pendientes}${reagCard}</div>`;
 }
 
@@ -1268,7 +1542,9 @@ function calificacionBadge(val){
   if(v.includes('en calificaci')||v.includes('en calificacion'))return`<span class="badge badge-cyan">${val}</span>`;
   if(v.includes('no show'))return`<span class="badge badge-red">${val}</span>`;
   if(v.includes('nuevo mql'))return`<span class="badge badge-blue">${val}</span>`;
-  if(v.includes('form nunca'))return`<span class="badge badge-gold">${val}</span>`;
+  if(v.includes('asisti'))return`<span class="badge badge-green">${val}</span>`;
+  if(v.includes('reagend'))return`<span class="badge badge-gold">${val}</span>`;
+  if(v.includes('nunca agend'))return`<span class="badge badge-gold">${val}</span>`;
   return`<span class="badge badge-gray">${val}</span>`;
 }
 function etapaBadge(val){
@@ -1294,6 +1570,14 @@ function pagoBadge(val){
   if(v.includes('cripto'))return`<span class="badge badge-gold">${val}</span>`;
   if(v.includes('sin pago'))return`<span class="badge badge-gray">${val}</span>`;
   return`<span class="badge badge-gray">${val}</span>`;
+}
+// Partner vs Directo: la distincion que el panel no hacia. Un partner que manda
+// el cliente por WhatsApp se veia igual que alguien que escribio por WhatsApp
+// desde un anuncio, y son dos negocios distintos.
+function origenBadge(val){
+  if(!val||val===SIN_DATO)return`<span class="badge badge-gray">${SIN_DATO}</span>`;
+  if(val==='Partner')return`<span class="badge badge-purple">Partner</span>`;
+  return`<span class="badge badge-cyan">Directo</span>`;
 }
 function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
@@ -1391,9 +1675,22 @@ function buildFilters(){
     html+=multiSelectHTML('landing','Landing Origen',getUniqueValues(DATA.leads,'Landing Origen'));
     html+=multiSelectHTML('calificacion','Calificaci\u00f3n',getUniqueValues(DATA.leads,'Calificaci\u00f3n'));
     html+=multiSelectHTML('vendedor','Vendedor',getUniqueValues(DATA.leads,'Vendedor asignado'));
+    // Los dos campos ya venían del CRM y ya armaban el embudo, pero no se podían
+    // filtrar: era el pedido textual de la reunión del 25-ago.
+    html+=multiSelectHTML('agendo','¿Agendó?',getUniqueValues(DATA.leads,'¿Agendó?'));
+    html+=multiSelectHTML('meeting','Asistencia',getUniqueValues(DATA.leads,'Estado del meeting'));
+    html+=filterPeriodo()+filterDate('desde','Desde')+filterDate('hasta','Hasta');
+  } else if(currentTab==='reuniones'){
+    html+=multiSelectHTML('estadoReunion','Estado',getUniqueValues(DATA.reuniones,'Estado'));
+    html+=multiSelectHTML('cerro','¿Cerró?',getUniqueValues(DATA.reuniones,'¿Cerró?'));
+    html+=multiSelectHTML('canal','Canal',getUniqueValues(DATA.reuniones,'Canal'));
+    html+=multiSelectHTML('landing','Landing Origen',getUniqueValues(DATA.reuniones,'Landing Origen'));
+    html+=multiSelectHTML('calendario','Calendario',getUniqueValues(DATA.reuniones,'Calendario'));
+    html+=multiSelectHTML('anticipacion','Anticipación',getUniqueValues(DATA.reuniones,'Anticipación'));
     html+=filterPeriodo()+filterDate('desde','Desde')+filterDate('hasta','Hasta');
   } else if(currentTab==='llcs'){
     html+=multiSelectHTML('etapa','Etapa',getUniqueValues(DATA.llcs,'Etapa'));
+    html+=multiSelectHTML('tipoOrigen','Tipo',getUniqueValues(DATA.llcs,'Tipo de Origen'));
     html+=multiSelectHTML('canal','Canal',getUniqueValues(DATA.llcs,'Canal de Origen'));
     html+=multiSelectHTML('pago','Pago',getUniqueValues(DATA.llcs,'Confirmaci\u00f3n de pago'));
     html+=filterPeriodo()+filterDate('desde','Desde')+filterDate('hasta','Hasta');
@@ -1462,11 +1759,24 @@ function getFilteredRowsBase(){
       if(!matchesMulti(r['Landing Origen'],'landing'))return false;
       if(!matchesMulti(r['Calificaci\u00f3n']||r['Calificacion'],'calificacion'))return false;
       if(!matchesMulti(r['Vendedor asignado'],'vendedor'))return false;
+      if(!matchesMulti(r['¿Agendó?'],'agendo'))return false;
+      if(!matchesMulti(r['Estado del meeting'],'meeting'))return false;
+      return matchesDateRange(r['Fecha']);
+    });
+  } else if(currentTab==='reuniones'){
+    return (DATA.reuniones||[]).filter(r=>{
+      if(!matchesMulti(r['Estado'],'estadoReunion'))return false;
+      if(!matchesMulti(r['¿Cerró?'],'cerro'))return false;
+      if(!matchesMulti(r['Canal'],'canal'))return false;
+      if(!matchesMulti(r['Landing Origen'],'landing'))return false;
+      if(!matchesMulti(r['Calendario'],'calendario'))return false;
+      if(!matchesMulti(r['Anticipación'],'anticipacion'))return false;
       return matchesDateRange(r['Fecha']);
     });
   } else if(currentTab==='llcs'){
     return DATA.llcs.filter(r=>{
       if(!matchesMulti(r['Etapa'],'etapa'))return false;
+      if(!matchesMulti(r['Tipo de Origen'],'tipoOrigen'))return false;
       if(!matchesMulti(r['Canal de Origen'],'canal'))return false;
       if(!matchesMulti(r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago'],'pago'))return false;
       return matchesDateRange(r['Fecha']);
@@ -1526,7 +1836,7 @@ function renderLeads(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
     <th></th>${th('Fecha','Fecha')}${th('Servicio','Servicio')}${th('Nombre y Apellido','Nombre')}${th('Canal','Canal')}${th('Landing Origen','Landing Origen')}${th('Calificaci\u00f3n','Calificaci\u00f3n')}
-    <th>Tel\u00e9fono</th>${th('Mail','Mail')}${th('\u00bfAgend\u00f3?','Agend\u00f3?')}${th('Retargeting','Retargeting')}${th('Modalidad de cierre','Modalidad de cierre')}${th('Vendedor asignado','Vendedor')}
+    <th>Tel\u00e9fono</th>${th('Mail','Mail')}${th('\u00bfAgend\u00f3?','Agend\u00f3?')}${th('Retargeting','Retargeting')}${th('Modalidad de cierre','Vía de cierre')}${th('Vendedor asignado','Vendedor')}
   </tr></thead><tbody>${rows.map(r=>{const nk='lead_'+(normEmail(r['Mail'])||esc(r['Nombre y Apellido']));return `<tr>
     <td>${noteBtn(nk,r['Nombre y Apellido']||'Lead')}</td>
     <td>${esc(r['Fecha'])}</td>
@@ -1548,7 +1858,7 @@ function renderLLCs(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
     <th></th>${th('Fecha','Fecha')}${th('LLC','LLC')}${th('Etapa','Etapa')}${th('Nombre','Nombre')}${th('Email','Email')}
-    <th>Tel\u00e9fono</th>${th('Canal de Origen','Canal')}${th('Vendedor','Vendedor')}${th('Confirmaci\u00f3n de pago','Pago')}
+    <th>Tel\u00e9fono</th>${th('Tipo de Origen','Tipo')}${th('Canal de Origen','Canal')}${th('Vendedor','Vendedor')}${th('Confirmaci\u00f3n de pago','Pago')}
   </tr></thead><tbody>${rows.map(r=>{const nk='llc_'+(normEmail(r['Email'])||esc(r['LLC']));return `<tr>
     <td>${noteBtn(nk,r['LLC']||'LLC')}</td>
     <td>${esc(r['Fecha'])}</td>
@@ -1557,6 +1867,7 @@ function renderLLCs(rows){
     <td>${esc(r['Nombre'])}</td>
     <td>${esc(r['Email'])}</td>
     <td>${esc(r['Tel\u00e9fono']||r['Telefono'])}</td>
+    <td>${origenBadge(r['Tipo de Origen'])}</td>
     <td>${esc(r['Canal de Origen'])}</td>
     <td>${vendedorCell(r['Vendedor'])}</td>
     <td>${pagoBadge(r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago'])}</td>
@@ -1569,7 +1880,9 @@ function renderSeguimientos(rows){
     <th></th>${th('Fecha \u00faltimo meeting','Fecha')}${th('Nombre','Nombre')}${th('Mail','Mail')}${th('Estatus del Lead','Estatus')}
     ${th('Vendedor','Vendedor')}${th('Canal de Origen','Canal')}${th('Landing Origen','Landing Origen')}${th('Retargeting','Retargeting')}${th('Estado del Meeting','Meeting')}<th>Descripci\u00f3n</th>
   </tr></thead><tbody>${rows.map(r=>{
-    const isSQL=(r['Estatus del Lead']||'').toLowerCase().includes('sql calificado');
+    // Antes resaltaba los SQL, que ya no existen: no se prendía nunca. Ahora
+    // marca lo accionable: se cayó la reunión y nadie le puso secuencia.
+    const isSQL=r['Estado del Meeting']==='No Asistió'&&(r['Retargeting']||'No')==='No';
     const nk='seg_'+(normEmail(r['Mail'])||(esc(r['Nombre'])+esc(r['Apellido'])));
     return `<tr class="${isSQL?'alert-row':''}">
     <td>${noteBtn(nk,(r['Nombre']||'')+' '+(r['Apellido']||''))}</td>
@@ -1584,6 +1897,165 @@ function renderSeguimientos(rows){
     <td>${meetingBadge(r['Estado del Meeting'])}</td>
     <td style="white-space:normal;max-width:300px" title="${esc(r['Descripci\u00f3n']||r['Descripcion'])}">${esc(r['Descripci\u00f3n']||r['Descripcion']||'')}</td>
   </tr>`}).join('')}</tbody></table>`;
+}
+
+// ===== FORMULARIO DE META =====
+// La campania de clientes potenciales es el UNICO canal con una tasa de
+// agendamiento honesta: el lead se crea cuando la persona deja el dato dentro
+// de Meta, asi que "cuantos de estos agendaron" es una tasa de verdad.
+// Con el resto no se puede: el registro de quien entra por la landing se crea
+// recien al reservar, asi que su tasa da 90-100% siempre. Por eso esta tarjeta
+// no compara contra ningun otro canal, muestra el formulario contra si mismo.
+function renderFormMeta(){
+  const f=DATA&&DATA.formMeta;
+  if(!f||!f.meses||!f.meses.length)return'';
+  // Los meses de arranque con menos de 20 leads no dicen nada: un mes con 7
+  // leads y 2 agendas seria "29%" y ensucia la lectura de la serie.
+  const meses=f.meses.filter(m=>m.leads>=20);
+  if(!meses.length)return'';
+  const tot=meses.reduce((a,m)=>({leads:a.leads+m.leads,ag:a.ag+m.agendaron,pr:a.pr+m.presentaron}),{leads:0,ag:0,pr:0});
+  const mejor=Math.max(...meses.map(m=>pct2(m.agendaron,m.leads)));
+  return`<div class="chart-card">
+    <div class="chart-title">Formulario de Meta, mes a mes</div>
+    <div class="chart-note">La campa&ntilde;a de clientes potenciales: la persona deja el dato adentro de Meta y despu&eacute;s hay que traerla a agendar.
+      Es el &uacute;nico canal con una tasa de agendamiento real, porque el lead se crea al dejar el dato y no al reservar.
+      Meses con 20 leads o m&aacute;s. El que cerr&oacute; ya no est&aacute; en el m&oacute;dulo Leads, as&iacute; que estos porcentajes quedan apenas por debajo del real.</div>
+    <div class="table-scroll"><table class="comp-table"><thead><tr>
+      <th>Mes</th><th class="num">Leads</th><th class="num">Agendaron</th><th class="num">% agenda</th>
+      <th class="num">Se presentaron</th><th class="num">% presenta</th>
+    </tr></thead><tbody>
+    ${meses.map(m=>{
+      const pa=pct2(m.agendaron,m.leads);
+      return`<tr class="${pa>=mejor&&mejor>0?'comp-mejor':''}"><td>${mesLargo(m.mes)}</td>
+        <td class="num">${m.leads}</td><td class="num">${m.agendaron}</td>
+        <td class="num"><b>${pa}%</b></td>
+        <td class="num">${m.presentaron}</td><td class="num">${pct2(m.presentaron,m.leads)}%</td></tr>`;
+    }).join('')}
+    <tr class="comp-total"><td><b>Total</b></td><td class="num"><b>${tot.leads}</b></td>
+      <td class="num"><b>${tot.ag}</b></td><td class="num"><b>${pct2(tot.ag,tot.leads)}%</b></td>
+      <td class="num"><b>${tot.pr}</b></td><td class="num"><b>${pct2(tot.pr,tot.leads)}%</b></td></tr>
+    </tbody></table></div>
+  </div>`;
+}
+
+// ===== DESDE CUANDO VALE CADA COSA =====
+// Las cuatro series del panel no arrancan en el mismo lugar y hasta ahora nada
+// lo decia. Sin esto, comparar "leads por mes" contra "cierres por mes" contra
+// "landing" da conclusiones falsas: no es que un canal desaparecio, es que el
+// campo no existia. Medido sobre todo el CRM el 25-ago-2026.
+const FUENTES=[
+  {que:'Reuniones, no-show y cierres',desde:'oct 2025',tono:'ok',
+   por:'Salen de Events + Deals, que no se borran al convertir. Antes de octubre el resultado del meeting se cargaba en el 24-44% de los casos; desde ahí está sobre 70%.'},
+  {que:'Leads y canales',desde:'la ventana elegida',tono:'ok',
+   por:'Salen del módulo Leads, que sí pierde a los que convirtieron. Sirven para volumen y origen, no para medir cierre.'},
+  {que:'Landing de origen',desde:'jun 2026',tono:'medio',
+   por:'Los campos Calendario y Landing_Origen no existían antes de may-2026: trece meses seguidos en 0%. Comparar landings contra meses anteriores no da.'},
+  {que:'Estado del lead',desde:'no sirve para historia',tono:'malo',
+   por:'El 92% de los leads viejos fue modificado después del mes de alta (3.165 sólo en abr-2026). Lead_Status dice dónde está el lead HOY, no qué pasó ese mes.'},
+  {que:'¿Quién lo vendió? y Confirmación de pago',desde:'no se cargan',tono:'malo',
+   por:'«Quién lo vendió» está en 0% desde siempre. «Pago» venía 18-42% hasta ene-2026 y está en 0% desde marzo.'}
+];
+function renderDesde(){
+  return`<div class="chart-card">
+    <div class="chart-title">Desde cu&aacute;ndo se puede confiar en cada n&uacute;mero</div>
+    <div class="chart-note">El piso duro del CRM es <b>abril 2025</b>: no hay ning&uacute;n lead, evento ni apertura anterior.
+      De ah&iacute; en adelante cada dato tiene su propia fecha.</div>
+    <div class="table-scroll"><table class="comp-table"><thead><tr>
+      <th>Dato</th><th>Sirve desde</th><th>Por qu&eacute;</th>
+    </tr></thead><tbody>
+    ${FUENTES.map(f=>`<tr><td><b>${esc(f.que)}</b></td>
+      <td class="fuente-${f.tono}">${esc(f.desde)}</td>
+      <td style="white-space:normal;max-width:520px">${esc(f.por)}</td></tr>`).join('')}
+    </tbody></table></div>
+  </div>`;
+}
+
+// ===== REUNIONES =====
+// Una fila por reunion, no por persona. Es la unica solapa que ve a los que
+// cerraron: el resto del panel sale del modulo Leads y Zoho saca de ahi al lead
+// en cuanto convierte, asi que las reuniones que terminaron en venta faltaban.
+function cerroBadge(v){
+  if(v==='Sí')return'<span class="badge badge-green">Cerr&oacute;</span>';
+  if(v==='No')return'<span class="badge badge-gray">No cerr&oacute;</span>';
+  return '<span class="badge badge-gray" title="Sólo tiene sentido preguntarlo si la reunión se dio">&mdash;</span>';
+}
+function estadoReunionBadge(v){
+  if(v==='Asistió')return'<span class="badge badge-green">Asisti&oacute;</span>';
+  if(v==='Asistió sin interés')return'<span class="badge badge-gold">Asisti&oacute; sin inter&eacute;s</span>';
+  if(v==='No asistió')return'<span class="badge badge-red">No asisti&oacute;</span>';
+  if(v==='Reagendó')return'<span class="badge badge-gold">Reagend&oacute;</span>';
+  return'<span class="badge badge-gray">Sin resultado</span>';
+}
+function renderReuniones(rows){
+  if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
+  return `<table><thead><tr>
+    ${th('Fecha','Fecha')}${th('Nombre','Nombre')}${th('Calendario','Calendario')}${th('Canal','Canal')}
+    ${th('Landing Origen','Landing Origen')}${th('Estado','Estado')}${th('¿Cerró?','¿Cerró?')}${th('Servicio','Servicio')}
+    ${th('Retargeting','Retargeting')}${th('Anticipación','Anticipación')}
+  </tr></thead><tbody>${rows.map(r=>`<tr class="${r['¿Cerró?']==='Sí'?'alert-row':''}">
+    <td>${esc(r['Fecha'])}</td>
+    <td><strong>${esc(r['Nombre'])}</strong></td>
+    <td>${esc(r['Calendario'])}</td>
+    <td>${esc(r['Canal'])}</td>
+    <td>${esc(r['Landing Origen'])}</td>
+    <td>${estadoReunionBadge(r['Estado'])}</td>
+    <td>${cerroBadge(r['¿Cerró?'])}</td>
+    <td>${esc(r['Servicio'])}</td>
+    <td>${r['Retargeting']?esc(r['Retargeting']):'<span class="badge badge-gray" title="El campo de retargeting sólo existe en Leads: al convertir, el dato no se arrastra">&mdash;</span>'}</td>
+    <td>${esc(r['Anticipación'])}</td>
+  </tr>`).join('')}</tbody></table>`;
+}
+
+// La tasa de cierre se mide como la pidio Bauti: sobre llamadas PRESENTADAS, no
+// sobre leads calificados. "Se presentan cinco y cerras una, tenes 20%, por mas
+// que sean o no calificadas."
+function renderMetricsReuniones(rows){
+  const total=rows.length;
+  const conRes=rows.filter(r=>r['Estado']!=='Sin resultado');
+  const pres=rows.filter(r=>r['¿Se presentó?']==='Sí');
+  const noShow=rows.filter(r=>r['Estado']==='No asistió');
+  const cerr=pres.filter(r=>r['¿Cerró?']==='Sí');
+  const sinRes=total-conRes.length;
+
+  const kpis=`<div class="kpi-row">
+    ${kpiTile('Reuniones agendadas',total,conRes.length+' con resultado cargado','',null)}
+    ${kpiTile('Se presentaron',pres.length,pct(pres.length,conRes.length)+'% de las que tienen resultado','',null,'presentadas',pres.length)}
+    ${kpiTile('No-show',noShow.length,pct(noShow.length,conRes.length)+'% de las que tienen resultado','',null,'noShow',pct(noShow.length,conRes.length))}
+    ${kpiTile('Cerraron',cerr.length,'sobre '+pres.length+' presentadas','',null)}
+    ${kpiTile('Tasa de cierre',pct(cerr.length,pres.length)+'%','cierres / presentadas','',null,'cierre',pct(cerr.length,pres.length))}
+  </div>`;
+
+  const embudo=`<div class="chart-card">
+    <div class="chart-title">De la reuni&oacute;n al cierre</div>
+    <div class="chart-note">Cada barra sobre el total de reuniones agendadas del per&iacute;odo.
+      ${sinRes?`<br><b>${sinRes}</b> reuniones no tienen resultado cargado y no entran en ning&uacute;n porcentaje.`:''}</div>
+    ${barrasHTML([
+      {etapa:'Agendadas',valor:total},
+      {etapa:'Con resultado',valor:conRes.length},
+      {etapa:'Se presentaron',valor:pres.length},
+      {etapa:'Cerraron',valor:cerr.length}
+    ].map(e=>({etiqueta:e.etapa,valor:e.valor,tip:e.etapa+': '+e.valor})),{rampa:true,pctSobre:total})}
+  </div>`;
+
+  const porCanal=(()=>{
+    const m={};
+    pres.forEach(r=>{const c=r['Canal']||'Sin dato';m[c]=m[c]||{p:0,c:0};m[c].p++;if(r['¿Cerró?']==='Sí')m[c].c++});
+    const filas=Object.entries(m).filter(([,v])=>v.p>=3).sort((a,b)=>b[1].p-a[1].p);
+    if(!filas.length)return'';
+    return`<div class="chart-card">
+      <div class="chart-title">Qu&eacute; canal cierra</div>
+      <div class="chart-note">Sobre reuniones presentadas. Canales con 3 o m&aacute;s. Al que convirti&oacute; se le aplica la misma
+        cascada de atribuci&oacute;n que al lead (calendario de la reuni&oacute;n), si no los dos grupos no ser&iacute;an comparables.</div>
+      <table class="comp-table"><thead><tr><th>Canal</th><th class="num">Presentadas</th><th class="num">Cerraron</th><th class="num">% cierre</th></tr></thead>
+      <tbody>${filas.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num">${v.p}</td><td class="num">${v.c}</td><td class="num">${pct(v.c,v.p)}%</td></tr>`).join('')}</tbody></table>
+    </div>`;
+  })();
+
+  const desde=(DATA&&DATA.desde&&DATA.desde.reuniones)?new Date(DATA.desde.reuniones):null;
+  const nota=desde?`<div class="chart-note" style="margin-bottom:14px">
+    Esta solapa arranca en <b>${desde.toLocaleDateString('es-AR',{month:'long',year:'numeric'})}</b>, que es desde cuándo el resultado de la reunión se carga en más del 70% de los casos.
+    Antes de eso venía en 24-44% y cualquier no-show o tasa de cierre sería inventado. El detalle está en <b>Calidad de Datos</b>.</div>`:'';
+  return kpis+botonMetas()+nota+`<div class="charts-row">${embudo}${porCanal}</div>`;
 }
 
 // ===== CALIDAD DE DATOS =====
@@ -1609,6 +2081,7 @@ function renderCalidad(){
   El dashboard solo puede mostrar lo que est&aacute; ac&aacute; en verde: donde dice 0% no hay un problema de reporte,
   no hay dato. <strong>Vendedor real</strong> cuenta los leads cuyo due&ntilde;o no es el usuario gen&eacute;rico
   &laquo;Start Companies Staff&raquo;.</div>
+  ${renderDesde()}
   ${bloqueCalidad('Leads',DATA.calidad.leads)}
   ${bloqueCalidad('LLCs / Aperturas',DATA.calidad.llcs)}`;
 }
@@ -1652,6 +2125,7 @@ function renderTable(){
   if(currentTab==='calidad')el.innerHTML=renderCalidad();
   else if(currentTab==='leads')el.innerHTML=aviso+renderLeads(rows);
   else if(currentTab==='llcs')el.innerHTML=aviso+renderLLCs(rows);
+  else if(currentTab==='reuniones')el.innerHTML=aviso+renderReuniones(rows);
   else el.innerHTML=aviso+renderSeguimientos(rows);
 }
 
@@ -1671,7 +2145,7 @@ function avisoFrescura(){
   const dias=Math.floor((Date.now()-d.getTime())/86400000);
   if(dias<2)return'';
   const fecha=d.toLocaleDateString('es-AR',{day:'2-digit',month:'short'});
-  const fuente=currentTab==='leads'?'el CRM':'la vista de Zoho Analytics';
+  const fuente=(currentTab==='leads'||currentTab==='reuniones')?'el CRM':'la vista de Zoho Analytics';
   return`<div class="aviso-filtro">El registro más nuevo acá es del <b>${fecha}</b>, hace ${dias} días.
     La sincronización de ${fuente} está atrasada: lo que ves no incluye lo último.</div>`;
 }
@@ -1697,11 +2171,14 @@ function getExportData(){
     return{headers,data};
   }
   if(currentTab==='leads'){
-    headers=['Fecha','Servicio','Nombre','Canal','Landing Origen','Origen del dato','Calificacion','Telefono','Mail','Agendo','Retargeting','Proximo mensaje','Modalidad de cierre','Modalidad de pago','Vendedor'];
+    headers=['Fecha','Servicio','Nombre','Canal','Landing Origen','Origen del dato','Calificacion','Telefono','Mail','Agendo','Retargeting','Proximo mensaje','Via de cierre','Modalidad de pago','Vendedor'];
     data=rows.map(r=>[r['Fecha'],r['Servicio'],r['Nombre y Apellido'],r['Canal'],r['Landing Origen'],r['Origen del dato'],r['Calificaci\u00f3n']||r['Calificacion'],r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'],r['Mail'],r['\u00bfAgend\u00f3?'],r['Retargeting'],r['Pr\u00f3ximo mensaje'],r['Modalidad de cierre'],r['Modalidad de pago'],r['Vendedor asignado']]);
   }else if(currentTab==='llcs'){
-    headers=['Fecha','LLC','Etapa','Nombre','Email','Telefono','Canal','Vendedor','Pago'];
-    data=rows.map(r=>[r['Fecha'],r['LLC'],r['Etapa'],r['Nombre'],r['Email'],r['Tel\u00e9fono']||r['Telefono'],r['Canal de Origen'],r['Vendedor'],r['Confirmaci\u00f3n de pago']||r['Confirmacion de pago']]);
+    headers=['Fecha','LLC','Etapa','Nombre','Email','Telefono','Tipo de Origen','Partner','Canal','Vendedor','Pago'];
+    data=rows.map(r=>[r['Fecha'],r['LLC'],r['Etapa'],r['Nombre'],r['Email'],r['Teléfono'],r['Tipo de Origen'],r['Partner'],r['Canal de Origen'],r['Vendedor'],r['Confirmación de pago']]);
+  }else if(currentTab==='reuniones'){
+    headers=['Fecha','Nombre','Calendario','Canal','Landing Origen','Estado','Se presento','Cerro','Servicio','Retargeting','Anticipacion','Registro'];
+    data=rows.map(r=>[r['Fecha'],r['Nombre'],r['Calendario'],r['Canal'],r['Landing Origen'],r['Estado'],r['¿Se presentó?'],r['¿Cerró?'],r['Servicio'],r['Retargeting'],r['Anticipación'],r['Estado del registro']]);
   }else{
     headers=['Fecha','Nombre','Mail','Estatus','Vendedor','Canal','Landing Origen','Retargeting','Proximo mensaje','Meeting','Descripcion'];
     data=rows.map(r=>[r['Fecha \u00faltimo meeting']||r['Fecha ultimo meeting'],(r['Nombre']||'')+' '+(r['Apellido']||''),r['Mail'],r['Estatus del Lead'],r['Vendedor'],r['Canal de Origen'],r['Landing Origen'],r['Retargeting'],r['Pr\u00f3ximo mensaje'],r['Estado del Meeting'],r['Descripci\u00f3n']||r['Descripcion']]);
@@ -1756,6 +2233,7 @@ async function fetchData(){
     });
     await loadNotes();
     await cargarInversion();
+    await cargarMetas();
     if(!filters.periodo)applyPeriodo(defaultPeriodo(currentTab));
     updateMetrics();buildFilters();renderTable();
     const cacheStatus=res.headers.get('X-Cache');
