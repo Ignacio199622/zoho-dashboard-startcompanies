@@ -160,6 +160,9 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 .inv-input{min-width:0;width:100%;text-align:right;font-variant-numeric:tabular-nums}
 
 .comp-table td,.comp-table th{white-space:nowrap}
+.comp-table th.sub{font-size:9px;opacity:.75;padding-top:0}
+.comp-table td.cierre-si{color:var(--green);font-weight:600}
+.comp-table td.cierre-cero{color:var(--red);font-weight:600}
 .comp-table .num{text-align:right;font-variant-numeric:tabular-nums}
 .comp-mejor td{background:rgba(0,182,122,.10)}
 .comp-mejor td:first-child{box-shadow:inset 3px 0 0 var(--green)}
@@ -1201,43 +1204,86 @@ function rendimientoLandings(rows){
 const MES_CORTO=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 function renderComparativaMensual(allLeads){
   if(!allLeads||!allLeads.length)return'';
+  // Mes a mes, la MISMA cohorte que el embudo: los leads dados de alta en ese
+  // mes seguidos hasta la compra. A proposito NO mira el filtro de periodo: es
+  // para comparar meses de un vistazo sin tener que ir cambiandolo.
   const map={};
   allLeads.forEach(r=>{
     const d=parseDate(r['Fecha']);if(!d)return;
     const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
-    if(!map[k])map[k]={total:0,agendo:0,sql:0,noShow:0};
-    const e=map[k];e.total++;
+    const e=map[k]=map[k]||{total:0,agendo:0,pres:0,ns:0,cierres:0,canal:{}};
+    e.total++;
     if(r['¿Agendó?']==='Sí')e.agendo++;
-    const c=(r['Calificación']||r['Calificacion']||'').toLowerCase();
-    if(c.includes('sql calificado'))e.sql++;
-    if(c.includes('no show'))e.noShow++;
+    if(r['Estado del meeting']==='Asistió')e.pres++;
+    if(r['Estado del meeting']==='No Asistió')e.ns++;
+    const c=r['Canal']||'Otro';
+    const cc=e.canal[c]=e.canal[c]||{n:0,ce:0};
+    cc.n++;
+    if(r['¿Cerró?']==='Sí'){e.cierres++;cc.ce++}
   });
-  // Only months fully inside the window are comparable: anything before it (or a
-  // partial first month, if the window starts mid-month) would show a fake drop.
+  // Solo los meses enteros que entran en la ventana: uno cortado a la mitad
+  // mostraria una caida que no existe.
   let keys=Object.keys(map).sort();
   if(DATA&&DATA.leadsSince){
-    const s=new Date(DATA.leadsSince);
-    let first=s.getUTCFullYear()+'-'+String(s.getUTCMonth()+1).padStart(2,'0');
-    if(s.getUTCDate()!==1){const n=new Date(Date.UTC(s.getUTCFullYear(),s.getUTCMonth()+1,1));first=n.getUTCFullYear()+'-'+String(n.getUTCMonth()+1).padStart(2,'0')}
+    const s2=new Date(DATA.leadsSince);
+    let first=s2.getUTCFullYear()+'-'+String(s2.getUTCMonth()+1).padStart(2,'0');
+    if(s2.getUTCDate()!==1){const n=new Date(Date.UTC(s2.getUTCFullYear(),s2.getUTCMonth()+1,1));first=n.getUTCFullYear()+'-'+String(n.getUTCMonth()+1).padStart(2,'0')}
     keys=keys.filter(k=>k>=first);
   }
   if(keys.length<2)return'';
-  const cards=keys.map((k,i)=>{
-    const d=map[k],prev=i>0?map[keys[i-1]]:null;
-    const parts=k.split('-');
-    const label=MES_CORTO[parseInt(parts[1],10)-1]+' '+parts[0];
-    let delta='',cls='';
-    if(prev&&prev.total){
-      const v=Math.round((d.total-prev.total)/prev.total*100);
-      delta=(v>0?'▲ +':v<0?'▼ ':'')+v+'% vs mes ant.';
-      cls=v>0?' green':v<0?' red':'';
-    }
-    return `<div class="metric-card${cls}"><div class="metric-label">${label}${delta?' · '+delta:''}</div>
-      <div class="metric-value">${d.total}</div>
-      <div class="metric-sub">${d.agendo} agendaron (${pct(d.agendo,d.total)}%) · ${d.noShow} no show</div></div>`;
-  }).join('');
-  return mSection('l_meses','Comparativa Mensual (leads)',`<div class="metrics-grid">${cards}</div>`);
+  const label=k=>{const p=k.split('-');return MES_CORTO[parseInt(p[1],10)-1]+' '+p[0].slice(2)};
+  const invMes=k=>{
+    if(!INVERSION||!INVERSION[k])return null;
+    const v=Object.values(INVERSION[k]).reduce((a,b)=>a+(Number(b)||0),0);
+    return v>0?v:null;
+  };
+  const mejorCierre=Math.max(...keys.map(k=>pct2(map[k].cierres,map[k].total)));
+
+  const filaMes=`<div class="chart-card">
+    <div class="chart-title">Mes a mes, de punta a punta</div>
+    <div class="chart-note">Los leads dados de alta en cada mes, seguidos hasta la compra. No depende del filtro de per&iacute;odo.
+      El costo por cliente sale de la inversi&oacute;n cargada a mano en ese mes.</div>
+    <div class="table-scroll"><table class="comp-table"><thead><tr>
+      <th>Mes</th><th class="num">Leads</th><th class="num">Agendaron</th><th class="num">%</th>
+      <th class="num">Se presentaron</th><th class="num">No-show</th><th class="num">Cerraron</th><th class="num">% cierre</th><th class="num">Costo x cliente</th>
+    </tr></thead><tbody>
+    ${keys.map(k=>{
+      const v=map[k],p=pct2(v.cierres,v.total),inv=invMes(k);
+      const conRes=v.pres+v.ns;
+      return`<tr class="${p>=mejorCierre&&mejorCierre>0?'comp-mejor':(v.cierres===0?'comp-cero':'')}">
+        <td><b>${label(k)}</b></td><td class="num">${v.total}</td><td class="num">${v.agendo}</td>
+        <td class="num">${pct2(v.agendo,v.total)}%</td><td class="num">${v.pres}</td>
+        <td class="num">${conRes?pct2(v.ns,conRes)+'%':'&mdash;'}</td>
+        <td class="num">${v.cierres}</td><td class="num"><b>${p}%</b></td>
+        <td class="num">${inv&&v.cierres?money(inv/v.cierres):'&mdash;'}</td></tr>`;
+    }).join('')}
+    </tbody></table></div>
+  </div>`;
+
+  // Matriz canal x mes: donde se movio el volumen y donde se movieron las ventas.
+  const canales={};
+  keys.forEach(k=>Object.entries(map[k].canal).forEach(([c,v])=>{
+    if(isJunkCanal(c))return;
+    canales[c]=canales[c]||{n:0};canales[c].n+=v.n;
+  }));
+  const orden=Object.entries(canales).sort((a,b)=>b[1].n-a[1].n).map(([c])=>c).slice(0,8);
+  const matriz=`<div class="chart-card">
+    <div class="chart-title">Qu&eacute; canal trajo y qu&eacute; canal vendi&oacute;, mes a mes</div>
+    <div class="chart-note">Leads y cierres de cada canal en cada mes. <b>N/A</b> no es un canal: es el lead del que s&oacute;lo se sabe que entr&oacute; por WhatsApp o por una landing.</div>
+    <div class="table-scroll"><table class="comp-table"><thead>
+      <tr><th rowspan="2">Canal</th>${keys.map(k=>`<th class="num" colspan="2">${label(k)}</th>`).join('')}</tr>
+      <tr>${keys.map(()=>'<th class="num sub">leads</th><th class="num sub">cierres</th>').join('')}</tr>
+    </thead><tbody>
+    ${orden.map(c=>`<tr><td>${esc(c)}</td>${keys.map(k=>{
+      const v=(map[k].canal[c])||{n:0,ce:0};
+      return`<td class="num">${v.n||'&mdash;'}</td><td class="num ${v.ce?'cierre-si':(v.n>=10?'cierre-cero':'')}">${v.n?v.ce:'&mdash;'}</td>`;
+    }).join('')}</tr>`).join('')}
+    </tbody></table></div>
+  </div>`;
+
+  return`<div class="charts-row">${filaMes}</div><div class="charts-row">${matriz}</div>`;
 }
+
 
 // Cabecera de la solapa de leads: lo que tiene que entenderse sin hacer un clic.
 function renderCabeceraLeads(rows,allLLCs,allSeguimientos){

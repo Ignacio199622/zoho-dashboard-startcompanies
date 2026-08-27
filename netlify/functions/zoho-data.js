@@ -30,6 +30,9 @@ function request(options, postData) {
       res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
     });
     req.on('error', reject);
+    // Sin timeout una conexion colgada deja la funcion esperando hasta que
+    // Netlify la corta, y el usuario ve el spinner para siempre.
+    req.setTimeout(20000, () => req.destroy(new Error('timeout de ' + options.hostname)));
     if (postData) req.write(postData);
     req.end();
   });
@@ -106,10 +109,25 @@ function crmGet(token, path) {
 async function crmGetPage(token, module, fields, page, extra) {
   const path = `${module}?fields=${encodeURIComponent(fields)}&per_page=200&page=${page}&sort_by=Created_Time&sort_order=desc${extra || ''}`;
   for (let attempt = 0; attempt < 4; attempt++) {
-    const r = await crmGet(token, path);
+    let r;
+    try {
+      r = await crmGet(token, path);
+    } catch (err) {
+      // Un "socket hang up" suelto tiraba abajo el payload entero y el panel
+      // quedaba sirviendo cache vieja. Es un corte de red, no una respuesta:
+      // se reintenta igual que el rate limit.
+      if (attempt === 3) throw err;
+      await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
+      continue;
+    }
     // rate limited -> back off and retry the same page
     if (r.statusCode === 429 || (r.json && r.json.code === 'TOO_MANY_REQUESTS')) {
       await new Promise(res => setTimeout(res, 1500 * (attempt + 1)));
+      continue;
+    }
+    // 5xx de Zoho: tambien es transitorio
+    if (r.statusCode >= 500 && attempt < 3) {
+      await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
       continue;
     }
     if (r.statusCode === 204 || !r.json || !r.json.data) return null;
@@ -1040,7 +1058,7 @@ function completarConversion(rows, raw, deals, contactos, evPorContacto) {
     if (id) (dealsPorContacto[id] = dealsPorContacto[id] || []).push(d);
   });
 
-  let cerrados = 0, agendaronRecuperados = 0;
+  let cerrados = 0, agendaronRecuperados = 0, atribucionRecuperada = 0;
   rows.forEach((r, i) => {
     if (r['Convertido'] !== 'Sí') return;
     const l = raw[i] || {};
@@ -1053,6 +1071,18 @@ function completarConversion(rows, raw, deals, contactos, evPorContacto) {
       r['Estado del meeting'] = meetingState(evs);
       r['Calificación'] = deriveCalificacion(l, 'Sí', r['Estado del meeting']);
       agendaronRecuperados++;
+      // Y se rehace la atribución: el calendario de la primera reunión es un
+      // escalón de la cascada, y para el convertido recién aparece acá. Sin esto
+      // el que compró se iba a N/A y su canal perdía justo el cierre.
+      const primero = evs.slice().sort((x, y) =>
+        new Date(x.Start_DateTime || x.Created_Time) - new Date(y.Start_DateTime || y.Created_Time))[0];
+      const atr = atribuir(l, primero);
+      if (atr.canal) {
+        r['Canal'] = atr.canal;
+        r['Landing Origen'] = atr.landing || SIN_DATO;
+        r['Origen del dato'] = atr.origen ? (atr.seguro ? atr.origen : atr.origen + ' (a confirmar)') : SIN_DATO;
+        atribucionRecuperada++;
+      }
     }
     const ds = dealsPorContacto[c.id] || [];
     if (ds.some(d => (d.Type || '').toLowerCase().indexOf('apertura') === 0)) {
@@ -1060,7 +1090,7 @@ function completarConversion(rows, raw, deals, contactos, evPorContacto) {
       cerrados++;
     }
   });
-  return { cerrados, agendaronRecuperados };
+  return { cerrados, agendaronRecuperados, atribucionRecuperada };
 }
 
 // ---------------------------------------------------------------------------
