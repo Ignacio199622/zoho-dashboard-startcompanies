@@ -133,7 +133,7 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 .alertas{margin-bottom:16px}
 .alertas-titulo{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;font-weight:600;margin-bottom:8px}
 .alertas-nota{text-transform:none;letter-spacing:0;font-weight:400;opacity:.75}
-.alertas-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.alertas-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr));gap:10px}
 .alerta{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;text-align:left;
   background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--text2);border-radius:var(--radius);
   padding:12px 14px;cursor:pointer;font-family:inherit;color:var(--text);transition:all .15s}
@@ -187,7 +187,7 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
   --s1:#006AFE;--s2:#3d8bff;--s3:#66a5ff;--s4:#8fbfff;--s5:#b8d8ff;
   --track:#12304e;
 }
-.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));gap:12px;margin-bottom:16px}
 .kpi-tile{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;display:flex;flex-direction:column;gap:6px;min-width:0}
 .kpi-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
 .kpi-main{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
@@ -205,6 +205,9 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 .kpi-meta-cerca .kpi-meta{color:var(--gold)}
 .kpi-meta-mal .kpi-meta{color:var(--red)}
 .kpi-meta-off{font-size:11px;color:var(--text2);font-style:italic}
+.btn-filtros{display:none;width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:11px 14px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px;text-align:left}
+.btn-filtros:hover{border-color:var(--cyan)}
+.btn-filtros .cuantos{color:var(--cyan);font-weight:700}
 .btn-metas{background:none;border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:5px 12px;font-family:inherit;font-size:11px;cursor:pointer;margin-bottom:16px}
 .btn-metas:hover{border-color:var(--cyan);color:var(--cyan)}
 .q-meta-ok{color:var(--green)}.q-meta-mal{color:var(--red)}
@@ -214,7 +217,7 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 .fuente-malo{color:var(--red);font-weight:600;white-space:nowrap}
 .kpi-spark{margin-top:2px;height:28px;width:100%;display:block;overflow:visible}
 
-.charts-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:16px}
+.charts-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:12px;margin-bottom:16px}
 .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;min-width:0}
 .chart-title{font-size:13px;font-weight:600;margin-bottom:2px}
 .chart-note{font-size:11px;color:var(--text2);margin-bottom:14px}
@@ -300,13 +303,24 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
   .container{padding:16px}
   .metrics-grid{grid-template-columns:repeat(2,1fr)}
   .metric-value{font-size:22px}
-  .filters-bar{flex-direction:column;align-items:stretch}
+  .filters-bar{flex-direction:column;align-items:stretch;display:none}
+  .filters-bar.abierta{display:flex}
+  .btn-filtros{display:block}
   .filter-select,.filter-date,.multi-select{min-width:100%;width:100%}
   .multi-select-btn{width:100%}
   .table-header{flex-direction:column;align-items:flex-start}
   .lema-text{font-size:12px;letter-spacing:1.5px}
 }
 @media(max-width:480px){
+  /* En el telefono lo unico que puede scrollear de costado son las tablas,
+     dentro de su propio contenedor. La pagina nunca. */
+  .container{padding:12px}
+  .kpi-value{font-size:26px}
+  .chart-card{padding:14px}
+  .table-scroll table{font-size:12px}
+  .table-scroll th,.table-scroll td{padding:9px 10px}
+  td{max-width:160px}
+  .lectura-texto{font-size:13px}
   .metrics-grid{grid-template-columns:1fr}
   .tabs{gap:2px}
   .tab{padding:8px 14px;font-size:13px}
@@ -369,6 +383,10 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
     </div>
 
     <!-- Filters -->
+    <!-- En el telefono los filtros se apilan uno por fila: ocho selects antes de
+         ver un solo numero. Se esconden detras de este boton, que solo aparece
+         en pantallas chicas. -->
+    <button class="btn-filtros" id="btnFiltros" onclick="toggleFiltros()" aria-expanded="false">Filtros</button>
     <div class="filters-bar" id="filtersBar"></div>
 
     <!-- Table -->
@@ -570,18 +588,19 @@ function serieMensual(rows,campoFecha,filtro){
 function calcularEmbudo(rows){
   const total=rows.length;
   const agendo=rows.filter(r=>r['¿Agendó?']==='Sí').length;
-  // Llega hasta "agendaron" Y NADA MAS, a proposito.
-  // Los pasos siguientes (se presento / cerro) NO se pueden sacar de aca: Zoho
-  // saca al lead del modulo en cuanto compra, asi que las filas que leemos son
-  // justamente las que no cerraron. El embudo viejo mostraba "Asistieron 276"
-  // cuando eran 384, y terminaba en "SQL Calificado", un estado que ya nadie
-  // carga. Presentadas y cierres viven en la solapa Reuniones, que sale de
-  // Events y no pierde a nadie.
+  const asistio=rows.filter(r=>r['Estado del meeting']==='Asistió').length;
+  const cerro=rows.filter(r=>r['¿Cerró?']==='Sí').length;
+  // Este embudo volvio a ser medible de punta a punta el 26-ago, cuando el
+  // backend empezo a pedir tambien los leads CONVERTIDOS (`converted=true`).
+  // Antes faltaban justo los que compraron y por eso terminaba en SQL.
   return[
     {etapa:'Leads',valor:total},
-    {etapa:'Agendaron',valor:agendo}
+    {etapa:'Agendaron',valor:agendo},
+    {etapa:'Se presentaron',valor:asistio},
+    {etapa:'Cerraron',valor:cerro}
   ];
 }
+
 
 // ===== PIEZAS VISUALES =====
 const RAMPA=['var(--s1)','var(--s2)','var(--s3)','var(--s4)','var(--s5)'];
@@ -754,66 +773,57 @@ function lecturaDelPeriodo(rows,allLLCs){
   const pr=prev?enVentana(DATA.leads,prev):[];
   const hayComparacion=pr.length>0;
 
-  // La lectura habla de PLATA y de CIERRES, no de SQL: ese estado dejó de usarse
-  // en Zoho (1 lead en 17 meses) y una lectura montada encima decía cualquier
-  // cosa. Los cierres salen de `reuniones`, que ve a los que compraron.
-  const rp=cierresDelPeriodo();
-  const prevR=prev?((DATA&&DATA.reuniones)||[]).filter(r=>{const d=parseDate(r['Fecha']);return d&&d>=prev.desde&&d<=prev.hasta}):[];
-  const pPres=prevR.filter(r=>r['¿Se presentó?']==='Sí');
-  const pCierres=pPres.filter(r=>r['¿Cerró?']==='Sí').length;
-
-  const ns=reunionesDelPeriodo().filter(r=>r['Estado']==='No asistió').length;
-  const conRes=reunionesDelPeriodo().filter(r=>r['Estado']!=='Sin resultado').length;
+  // Todo sale de la MISMA cohorte que el embudo de abajo: los leads del período
+  // seguidos hasta la compra. Antes los cierres salían de `reuniones` y el
+  // párrafo contradecía al embudo en la misma pantalla.
+  const cierres=rows.filter(r=>r['¿Cerró?']==='Sí').length;
+  const presentadas=rows.filter(r=>r['Estado del meeting']==='Asistió').length;
+  const ns=rows.filter(r=>r['Estado del meeting']==='No Asistió').length;
+  const conRes=presentadas+ns;
+  const pCierres=pr.filter(r=>r['¿Cerró?']==='Sí').length;
+  const pPres=pr.filter(r=>r['Estado del meeting']==='Asistió').length;
   const vLeads=hayComparacion?variacion(rows.length,pr.length):null;
-  const vCierres=hayComparacion?variacion(rp.cierres,pCierres):null;
-  const vPres=hayComparacion?variacion(rp.presentadas,pPres.length):null;
+  const vCierres=hayComparacion?variacion(cierres,pCierres):null;
+  const vPres=hayComparacion?variacion(presentadas,pPres):null;
 
   const partes=[];
 
-  // Abre con el costo por cierre si hay inversión cargada: es el número que se
-  // fijó como objetivo del trimestre, y flotaba al final de la pantalla.
+  // Abre con el costo por cliente: es el objetivo del trimestre y antes flotaba
+  // al final de la pantalla.
   const invTotal=(typeof inversionTotalDelPeriodo==='function')?inversionTotalDelPeriodo():null;
-  if(invTotal&&rp.cierres){
-    const cac=invTotal/rp.cierres;
-    const pInv=null;
-    partes.push(`Cada cliente costó <b>${money(cac)}</b> (${money(invTotal)} de pauta sobre ${rp.cierres} cierres).`);
-  }else if(invTotal&&!rp.cierres){
+  if(invTotal&&cierres){
+    partes.push(`Cada cliente costó <b>${money(invTotal/cierres)}</b> (${money(invTotal)} de pauta sobre ${cierres} cierres).`);
+  }else if(invTotal){
     partes.push(`<span class="lectura-alerta">Se invirtieron <b>${money(invTotal)}</b> y no hay ningún cierre en el período.</span>`);
   }
 
-  partes.push(`Entraron <b>${rows.length} leads</b>${vLeads!==null?', '+frase(vLeads):''}.`);
+  partes.push(`Entraron <b>${rows.length} leads</b>${vLeads!==null?', '+frase(vLeads):''} y <b>${cierres}</b> terminaron comprando (${pct2(cierres,rows.length)}%)${vCierres!==null?', '+frase(vCierres):''}.`);
 
-  // La tensión que importa: más volumen con menos cierres es peor, no mejor.
   if(vLeads!==null&&vCierres!==null&&vLeads>5&&vCierres<-5){
-    partes.push(`Pero los <b>cierres bajaron ${Math.abs(vCierres)}%</b> (${rp.cierres} contra ${pCierres}): entra más gente y compra menos.`);
-  }else{
-    partes.push(`Se presentaron <b>${rp.presentadas} reuniones</b>${vPres!==null?', '+frase(vPres):''} y cerraron <b>${rp.cierres}</b>${vCierres!==null?', '+frase(vCierres):''} (${pct2(rp.cierres,rp.presentadas)}%).`);
+    partes.push(`<span class="lectura-alerta">Entra más gente y compra menos.</span>`);
   }
+  partes.push(`Se presentaron <b>${presentadas}</b> a la llamada${vPres!==null?', '+frase(vPres):''}.`);
 
   if(ns&&conRes){
     partes.push(`El <b>${pct2(ns,conRes)}% no apareció</b> (${ns} de ${conRes} reuniones con resultado cargado).`);
   }
 
-  // Qué canal cierra y qué canal trae volumen sin cerrar nunca: de comparar esos
-  // dos sale la decisión de presupuesto.
+  // Qué canal cierra y qué canal trae volumen sin cerrar nunca.
   const porCanal={};
-  reunionesDelPeriodo().forEach(r=>{
-    if(r['¿Se presentó?']!=='Sí')return;
-    const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
-    if(!porCanal[c])porCanal[c]={n:0,c:0};porCanal[c].n++;if(r['¿Cerró?']==='Sí')porCanal[c].c++;
-  });
-  const conVolumen=Object.entries(porCanal).filter(([,v])=>v.n>=10);
+  rows.forEach(r=>{const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
+    if(!porCanal[c])porCanal[c]={n:0,c:0};porCanal[c].n++;if(r['¿Cerró?']==='Sí')porCanal[c].c++;});
+  const conVolumen=Object.entries(porCanal).filter(([,v])=>v.n>=20);
   if(conVolumen.length>=2){
     const mejor=conVolumen.slice().sort((a,b)=>pct2(b[1].c,b[1].n)-pct2(a[1].c,a[1].n))[0];
     const secos=conVolumen.filter(([,v])=>v.c===0).sort((a,b)=>b[1].n-a[1].n);
     if(mejor[1].c>0){
-      partes.push(`El canal que más cierra es <b>${esc(mejor[0])}</b> (${mejor[1].c} de ${mejor[1].n} presentadas, ${pct2(mejor[1].c,mejor[1].n)}%).`);
+      partes.push(`El canal que más cierra es <b>${esc(mejor[0])}</b> (${mejor[1].c} de ${mejor[1].n} leads, ${pct2(mejor[1].c,mejor[1].n)}%).`);
     }
     if(secos.length){
       const listados=secos.slice(0,2);
       const lista=listados.map(([c,v])=>`${esc(c)} (${v.n})`).join(' y ');
-      const verbo=listados.length>1?'tuvieron':'tuvo';
-      partes.push(`<span class="lectura-alerta">${lista} ${verbo} reuniones y <b>ningún cierre</b>.</span>`);
+      const verbo=listados.length>1?'trajeron':'trajo';
+      partes.push(`<span class="lectura-alerta">${lista} ${verbo} volumen y <b>ningún cliente</b>.</span>`);
     }
   }
 
@@ -863,6 +873,9 @@ const ALERTAS=[
    test:r=>r['Estado del registro']==='Lead'&&(r['Retargeting']||'No')==='No'
      &&r['Estado']!=='Sin resultado'&&r['¿Cerró?']!=='Sí'
      &&diasDesde(r['Fecha'])>=0&&diasDesde(r['Fecha'])<=30},
+  {id:'cerro_sin_origen',tab:'leads',tono:'gold',
+   titulo:'Compraron y no sabemos de dónde vinieron',accion:'Clientes con origen N/A. Cada uno es plata que no se puede atribuir a ningún canal.',
+   test:r=>r['¿Cerró?']==='Sí'&&(r['Canal']||'').indexOf('N/A')===0},
   {id:'meta_form_sin_agendar',tab:'leads',tono:'gold',
    titulo:'Formulario de Meta sin agendar ni retargeting',accion:'Dejaron el dato en Meta, nunca agendaron y no están en ninguna secuencia.',
    test:r=>r['Formulario de Meta']==='Sí'&&r['¿Agendó?']==='No'&&(r['Retargeting']||'No')==='No'}
@@ -1097,59 +1110,47 @@ function inversionTotalDelPeriodo(){
 // ===== COMPARADOR DE CANALES =====
 // La tabla con la que se decide presupuesto: volumen contra calidad, lado a lado.
 function comparadorCanales(rows){
-  // Antes esta tabla se apoyaba en SQL Calificado. Ese estado dejo de usarse en
-  // el CRM: en seis meses hay UN lead con ese Lead_Status, contra 650 en
-  // "En Calificacion" y 453 en "Retargeting". Un costo por SQL calculado sobre
-  // eso no significa nada. El eje pasa a ser el cierre, que ahora si se puede
-  // contar (solapa Reuniones) y que es literalmente el CAC que hay que bajar.
+  // Cohorte pura: los mismos leads del período seguidos hasta la compra. Se
+  // puede desde que el backend trae los convertidos; antes había que ir a
+  // buscar los cierres a `reuniones` y las dos unidades no eran comparables.
   const m={};
   rows.forEach(r=>{
     const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
-    if(!m[c])m[c]={n:0,sql:0,pres:0,cierres:0,ns:0,meet:0};
+    if(!m[c])m[c]={n:0,ag:0,pres:0,cierres:0,ns:0};
     m[c].n++;
-    if(esSQL(r))m[c].sql++;
+    if(r['¿Agendó?']==='Sí')m[c].ag++;
+    if(r['Estado del meeting']==='Asistió')m[c].pres++;
+    if(r['Estado del meeting']==='No Asistió')m[c].ns++;
+    if(r['¿Cerró?']==='Sí')m[c].cierres++;
   });
-  // Presentadas y cierres salen de `reuniones`, no de los leads: los leads que
-  // cerraron ya no estan en el modulo. Se respeta el mismo periodo elegido.
-  const v=ventanaActual();
-  (DATA&&DATA.reuniones?DATA.reuniones:[]).forEach(r=>{
-    if(v){const d=parseDate(r['Fecha']);if(!d||d<v.desde||d>v.hasta)return}
-    const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
-    if(!m[c])m[c]={n:0,sql:0,pres:0,cierres:0,ns:0,meet:0};
-    if(r['Estado']==='No asistió'){m[c].ns++;m[c].meet++}
-    else if(r['¿Se presentó?']==='Sí'){m[c].meet++;m[c].pres++;if(r['¿Cerró?']==='Sí')m[c].cierres++}
-  });
-  const filas=Object.entries(m).filter(([,v2])=>v2.n>=5||v2.pres>=3).sort((a,b)=>b[1].n-a[1].n);
+  const filas=Object.entries(m).filter(([,v])=>v.n>=5).sort((a,b)=>b[1].n-a[1].n);
   if(!filas.length)return'';
   const hayInversion=filas.some(([c])=>inversionDe(c)!==null);
   const metaCac=metaDe('costoCierre');
-  const sqlVivo=filas.some(([,v2])=>v2.sql>0);
   return`<div class="chart-card">
     <div class="chart-title">Comparador de canales
       <button class="btn-inv" onclick="abrirInversion()">${hayInversion?'Editar inversión':'Cargar inversión'}</button></div>
-    <div class="chart-note">Volumen contra cierre. Canales con 5 leads o 3 reuniones presentadas en el período.
-      Las reuniones y los cierres salen de la solapa Reuniones, que es la única que ve a los que convirtieron.
-      ${hayInversion?'':' Cargá la inversión y aparece el costo por lead y por cierre.'}
-      ${sqlVivo?'':'<br>El costo se mide <b>por cierre</b> y no por SQL porque «SQL Calificado» dejó de usarse en Zoho: hay un solo lead con ese estado en 17 meses.'}</div>
+    <div class="chart-note">Volumen contra cierre, sobre los leads que entraron en el período. Canales con 5 leads o más.
+      <b>N/A</b> no es un canal: es el lead del que sólo se sabe que entró por WhatsApp o por una landing, sin de qué anuncio vino.
+      ${hayInversion?'':' Cargá la inversión y aparece el costo por lead y por cierre.'}</div>
     <div class="table-scroll"><table class="comp-table"><thead><tr>
-      <th>Canal</th><th class="num">Leads</th><th class="num">Presentadas</th><th class="num">Cierres</th><th class="num">% cierre</th><th class="num">No-show</th>
+      <th>Canal</th><th class="num">Leads</th><th class="num">Agendaron</th><th class="num">Se presentaron</th><th class="num">Cierres</th><th class="num">% cierre</th><th class="num">No-show</th>
       ${hayInversion?'<th class="num">Inversión</th><th class="num">Costo/lead</th><th class="num">Costo por cierre</th>':''}
     </tr></thead><tbody>
-    ${filas.map(([c,v2])=>{
-      const p=pct2(v2.cierres,v2.pres);
-      const cl=v2.pres&&v2.cierres===0?'comp-cero':'';
+    ${filas.map(([c,v])=>{
+      const p=pct2(v.cierres,v.n);
+      const cl=v.cierres===0?'comp-cero':'';
       const inv=inversionDe(c);
-      // Sin cierres no hay costo por cierre: repartir la inversion entera como si
-      // fuera el costo de uno seria mentir. Se marca como plata sin retorno.
-      const cacNum=(inv!==null&&v2.cierres)?inv/v2.cierres:null;
+      const cacNum=(inv!==null&&v.cierres)?inv/v.cierres:null;
       const clsCac=(cacNum!==null&&metaCac!==null)?(cacNum<=metaCac?' q-meta-ok':' q-meta-mal'):'';
-      const cac=inv===null?'':v2.cierres?money(inv/v2.cierres):'<span class="sin-retorno">sin cierres</span>';
+      const cac=inv===null?'':v.cierres?money(inv/v.cierres):'<span class="sin-retorno">sin cierres</span>';
+      const conRes=v.pres+v.ns;
       const cols=hayInversion?`<td class="num">${inv===null?'—':money(inv)}</td>
-        <td class="num">${inv===null?'—':money(inv/v2.n)}</td>
+        <td class="num">${inv===null?'—':money(inv/v.n)}</td>
         <td class="num${clsCac}"><b>${inv===null?'—':cac}</b></td>`:'';
-      return`<tr class="${cl}"><td>${esc(c)}</td><td class="num">${v2.n}</td><td class="num">${v2.pres}</td>
-        <td class="num">${v2.cierres}</td><td class="num"><b>${v2.pres?p+'%':'—'}</b></td>
-        <td class="num">${v2.meet?pct2(v2.ns,v2.meet)+'%':'—'}</td>${cols}</tr>`;
+      return`<tr class="${cl}"><td>${esc(c)}</td><td class="num">${v.n}</td><td class="num">${v.ag}</td>
+        <td class="num">${v.pres}</td><td class="num">${v.cierres}</td><td class="num"><b>${p}%</b></td>
+        <td class="num">${conRes?pct2(v.ns,conRes)+'%':'—'}</td>${cols}</tr>`;
     }).join('')}
     </tbody></table></div>
   </div>`;
@@ -1160,9 +1161,6 @@ function comparadorCanales(rows){
 // que abrir la tabla para contestarla. Solo entran las que tienen landing real:
 // los de WhatsApp nunca pasaron por una, y meterlos ensuciaria la comparacion.
 function rendimientoLandings(rows){
-  // Igual que el comparador de canales: la columna de calidad pasa de SQL (un
-  // estado muerto) a presentadas y cierres, que salen de `reuniones` y por lo
-  // tanto sí ven a los que compraron.
   const m={};
   rows.forEach(r=>{
     const l=r['Landing Origen'];
@@ -1170,34 +1168,31 @@ function rendimientoLandings(rows){
     if(!m[l])m[l]={n:0,ag:0,pres:0,cierres:0,dudoso:0};
     m[l].n++;
     if(r['¿Agendó?']==='Sí')m[l].ag++;
+    if(r['Estado del meeting']==='Asistió')m[l].pres++;
+    if(r['¿Cerró?']==='Sí')m[l].cierres++;
     if(/confirmar/i.test(r['Origen del dato']||''))m[l].dudoso++;
   });
-  reunionesDelPeriodo().forEach(r=>{
-    const l=r['Landing Origen'];
-    if(!l||l===SIN_DATO)return;
-    if(!m[l])m[l]={n:0,ag:0,pres:0,cierres:0,dudoso:0};
-    if(r['¿Se presentó?']==='Sí'){m[l].pres++;if(r['¿Cerró?']==='Sí')m[l].cierres++}
-  });
-  const filas=Object.entries(m).filter(([,v])=>v.n>=3||v.pres>=3).sort((a,b)=>(b[1].n+b[1].pres)-(a[1].n+a[1].pres));
+  const filas=Object.entries(m).filter(([,v])=>v.n>=3).sort((a,b)=>b[1].n-a[1].n);
   if(!filas.length)return'';
   const totalConLanding=filas.reduce((s,[,v])=>s+v.n,0);
   return`<div class="chart-card">
     <div class="chart-title">Rendimiento por landing</div>
-    <div class="chart-note">${totalConLanding} leads con landing identificada en el per&iacute;odo. Con 3 leads o 3 reuniones cada una.
-      La landing solo est&aacute; cargada desde <b>jun 2026</b>: contra meses anteriores no es comparable.</div>
+    <div class="chart-note">${totalConLanding} leads con landing identificada en el per&iacute;odo. Con 3 o m&aacute;s cada una.
+      La landing s&oacute;lo est&aacute; cargada desde <b>jun 2026</b>: contra meses anteriores no es comparable.</div>
     <div class="table-scroll"><table class="comp-table"><thead><tr>
-      <th>Landing</th><th class="num">Leads</th><th class="num">Agend&oacute;</th><th class="num">Presentadas</th><th class="num">Cierres</th><th class="num">% cierre</th>
+      <th>Landing</th><th class="num">Leads</th><th class="num">Agend&oacute;</th><th class="num">Se present&oacute;</th><th class="num">Cierres</th><th class="num">% cierre</th>
     </tr></thead><tbody>
     ${filas.map(([l,v])=>{
-      const p=pct2(v.cierres,v.pres);
-      const cl=v.pres&&v.cierres===0?'comp-cero':'';
+      const p=pct2(v.cierres,v.n);
+      const cl=v.cierres===0?'comp-cero':'';
       const marca=v.dudoso&&v.dudoso===v.n?' <span class="badge badge-gold" title="Deducido del calendario usado, conviene confirmarlo">?</span>':'';
       return`<tr class="${cl}"><td>${esc(l)}${marca}</td><td class="num">${v.n}</td><td class="num">${v.ag}</td>
-        <td class="num">${v.pres}</td><td class="num">${v.cierres}</td><td class="num"><b>${v.pres?p+'%':'—'}</b></td></tr>`;
+        <td class="num">${v.pres}</td><td class="num">${v.cierres}</td><td class="num"><b>${p}%</b></td></tr>`;
     }).join('')}
     </tbody></table></div>
   </div>`;
 }
+
 
 
 // ===== METRICS =====
@@ -1247,12 +1242,8 @@ function renderComparativaMensual(allLeads){
 // Cabecera de la solapa de leads: lo que tiene que entenderse sin hacer un clic.
 function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
   const emb=calcularEmbudo(rows);
-  const total=emb[0].valor,agendo=emb[1].valor;
+  const total=emb[0].valor,agendo=emb[1].valor,asistio=emb[2].valor,cerro=emb[3].valor;
   const nunca=total-agendo;
-  // Presentadas y cierres salen de `reuniones`, no de estas filas. Son otra
-  // unidad (reuniones del período, no leads del período) y por eso van como
-  // tarjetas propias y no como pasos del embudo de arriba.
-  const rp=cierresDelPeriodo();
   // Metrica propia, no un paso del embudo: las LLCs del periodo se cuentan por su
   // fecha, no cruzandolas con los leads (ese cruce no existe, ver calcularEmbudo).
   const llc=enVentana(allLLCs||[],ventanaActual()).length;
@@ -1266,17 +1257,15 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
     pTotal=pe[0].valor;
     pAgendoTasa=pct(pe[1].valor,pe[0].valor);
     pNunca=pe[0].valor-pe[1].valor;
+    pPres=pe[2].valor;
+    pCierres=pe[3].valor;
     pLlc=enVentana(allLLCs||[],prev).length;
-    const rPrev=((DATA&&DATA.reuniones)||[]).filter(r=>{const d=parseDate(r['Fecha']);return d&&d>=prev.desde&&d<=prev.hasta});
-    const presPrev=rPrev.filter(r=>r['¿Se presentó?']==='Sí');
-    pPres=presPrev.length;
-    pCierres=presPrev.filter(r=>r['¿Cerró?']==='Sí').length;
   }
 
   const serieLeads=serieMensual(DATA.leads);
   const serieNunca=serieMensual(DATA.leads,'Fecha',r=>r['¿Agendó?']==='No');
-  const seriePres=serieMensual((DATA&&DATA.reuniones)||[],'Fecha',r=>r['¿Se presentó?']==='Sí');
-  const serieCierres=serieMensual((DATA&&DATA.reuniones)||[],'Fecha',r=>r['¿Cerró?']==='Sí');
+  const seriePres=serieMensual(DATA.leads,'Fecha',r=>r['Estado del meeting']==='Asistió');
+  const serieCierres=serieMensual(DATA.leads,'Fecha',r=>r['¿Cerró?']==='Sí');
   const serieLLC=serieMensual(DATA.llcs||[]);
   const tasa=pct(agendo,total);
 
@@ -1284,8 +1273,8 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
     ${kpiTile('Leads',total,'en el per&iacute;odo elegido',deltaHTML(total,pTotal),serieLeads)}
     ${kpiTile('Tasa de agendamiento',tasa+'%','⚠ '+agendo+' de '+total+'. Ver la nota del embudo',deltaHTML(tasa,pAgendoTasa),null)}
     ${kpiTile('Nunca agendaron',nunca,pct(nunca,total)+'% de los leads. El 93% de los que agendan lo hace el mismo d&iacute;a',deltaHTML(nunca,pNunca),serieNunca)}
-    ${kpiTile('Reuniones presentadas',rp.presentadas,'del per&iacute;odo, sale de la solapa Reuniones',deltaHTML(rp.presentadas,pPres),seriePres,'presentadas',rp.presentadas)}
-    ${kpiTile('Cerraron',rp.cierres,pct(rp.cierres,rp.presentadas)+'% de las presentadas',deltaHTML(rp.cierres,pCierres),serieCierres)}
+    ${kpiTile('Se presentaron',asistio,pct(asistio,agendo)+'% de los que agendaron',deltaHTML(asistio,pPres),seriePres,'presentadas',asistio)}
+    ${kpiTile('Cerraron',cerro,pct(cerro,total)+'% de los leads del per&iacute;odo',deltaHTML(cerro,pCierres),serieCierres)}
     ${kpiTile('LLCs abiertas',llc,'en el per&iacute;odo, medidas aparte',deltaHTML(llc,pLlc),serieLLC,'llcs',llc)}
   </div>`;
 
@@ -1297,9 +1286,8 @@ function renderCabeceraLeads(rows,allLLCs,allSeguimientos){
     tip:`<b>${e.etapa}: ${e.valor}</b>`+(i?`<br>${pct2(e.valor,emb[i-1].valor)}% de ${emb[i-1].etapa.toLowerCase()}`:'')
   }));
   const embudo=`<div class="chart-card">
-    <div class="chart-title">Del lead a la reserva</div>
-    <div class="chart-note">Llega hasta &laquo;agendaron&raquo; y no m&aacute;s, a prop&oacute;sito: Zoho saca al lead del m&oacute;dulo apenas compra, as&iacute; que estas filas son justo las que <b>no</b> cerraron.
-    Presentadas y cierres est&aacute;n arriba y en la solapa <b>Reuniones</b>, que sale de los Events y no pierde a nadie.<br>
+    <div class="chart-title">Del lead al cliente</div>
+    <div class="chart-note">Cohorte real: los mismos leads seguidos hasta la compra. Incluye a los <b>convertidos</b>, que Zoho no devuelve salvo que se los pida y hasta el 26-ago faltaban.<br>
     <span style="color:var(--gold)">&#9888; &laquo;Agendaron&raquo; todav&iacute;a no es una conversi&oacute;n real: quien agenda entra como un registro nuevo (Landing Page / Web Org&aacute;nica) en vez de marcarse sobre su lead de WhatsApp o Meta. Por eso los canales dan 0% o 100% y nunca algo en el medio.</span></div>
     ${barrasHTML(embudoItems,{rampa:true,pctSobre:total})}
   </div>`;
@@ -1665,6 +1653,22 @@ function filterPeriodo(){
   <select class="filter-select" id="filter_periodo" onchange="setPeriodo(this.value)">${opts}</select></div>`;
 }
 
+// El boton de filtros del telefono. Dice cuantos hay puestos para que no se
+// pierda un filtro activo detras de un panel cerrado.
+function toggleFiltros(){
+  const bar=document.getElementById('filtersBar'),btn=document.getElementById('btnFiltros');
+  const abierto=bar.classList.toggle('abierta');
+  btn.setAttribute('aria-expanded',abierto?'true':'false');
+  actualizarBotonFiltros();
+}
+function actualizarBotonFiltros(){
+  const btn=document.getElementById('btnFiltros');if(!btn)return;
+  const bar=document.getElementById('filtersBar');
+  const abierto=bar&&bar.classList.contains('abierta');
+  const puestos=Object.keys(filters).filter(k=>k!=='periodo'&&k!=='desde'&&k!=='hasta'&&filters[k]&&(!Array.isArray(filters[k])||filters[k].length)).length;
+  btn.innerHTML=(abierto?'Ocultar filtros':'Filtros')+(puestos?` <span class="cuantos">(${puestos} puesto${puestos>1?'s':''})</span>`:'');
+}
+
 function buildFilters(){
   if(!DATA)return;
   const bar=document.getElementById('filtersBar');
@@ -1679,6 +1683,7 @@ function buildFilters(){
     // filtrar: era el pedido textual de la reunión del 25-ago.
     html+=multiSelectHTML('agendo','¿Agendó?',getUniqueValues(DATA.leads,'¿Agendó?'));
     html+=multiSelectHTML('meeting','Asistencia',getUniqueValues(DATA.leads,'Estado del meeting'));
+    html+=multiSelectHTML('cerro','¿Cerró?',getUniqueValues(DATA.leads,'¿Cerró?'));
     html+=filterPeriodo()+filterDate('desde','Desde')+filterDate('hasta','Hasta');
   } else if(currentTab==='reuniones'){
     html+=multiSelectHTML('estadoReunion','Estado',getUniqueValues(DATA.reuniones,'Estado'));
@@ -1705,6 +1710,7 @@ function buildFilters(){
   }
   html+='<button class="btn-clear-filters" onclick="clearFilters()">Limpiar filtros</button>';
   bar.innerHTML=html;
+  actualizarBotonFiltros();
 }
 
 // Default period per tab: leads open on the current month (what the dashboard
@@ -1761,6 +1767,7 @@ function getFilteredRowsBase(){
       if(!matchesMulti(r['Vendedor asignado'],'vendedor'))return false;
       if(!matchesMulti(r['¿Agendó?'],'agendo'))return false;
       if(!matchesMulti(r['Estado del meeting'],'meeting'))return false;
+      if(!matchesMulti(r['¿Cerró?'],'cerro'))return false;
       return matchesDateRange(r['Fecha']);
     });
   } else if(currentTab==='reuniones'){
@@ -1836,7 +1843,7 @@ function renderLeads(rows){
   if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
   return `<table><thead><tr>
     <th></th>${th('Fecha','Fecha')}${th('Servicio','Servicio')}${th('Nombre y Apellido','Nombre')}${th('Canal','Canal')}${th('Landing Origen','Landing Origen')}${th('Calificaci\u00f3n','Calificaci\u00f3n')}
-    <th>Tel\u00e9fono</th>${th('Mail','Mail')}${th('\u00bfAgend\u00f3?','Agend\u00f3?')}${th('Retargeting','Retargeting')}${th('Modalidad de cierre','Vía de cierre')}${th('Vendedor asignado','Vendedor')}
+    <th>Tel\u00e9fono</th>${th('Mail','Mail')}${th('\u00bfAgend\u00f3?','Agend\u00f3?')}${th('Retargeting','Retargeting')}${th('¿Cerró?','¿Cerró?')}${th('Modalidad de cierre','Vía de cierre')}${th('Vendedor asignado','Vendedor')}
   </tr></thead><tbody>${rows.map(r=>{const nk='lead_'+(normEmail(r['Mail'])||esc(r['Nombre y Apellido']));return `<tr>
     <td>${noteBtn(nk,r['Nombre y Apellido']||'Lead')}</td>
     <td>${esc(r['Fecha'])}</td>
@@ -1849,6 +1856,7 @@ function renderLeads(rows){
     <td>${esc(r['Mail'])}</td>
     <td>${r['\u00bfAgend\u00f3?']==='S\u00ed'?'<span class="badge badge-green">S\u00ed</span>':'<span class="badge badge-gray">'+esc(r['\u00bfAgend\u00f3?'])+'</span>'}</td>
     <td>${retargetingCell(r)}</td>
+    <td>${cerroBadge(r['¿Cerró?'])}</td>
     <td>${sinDato(r['Modalidad de cierre'])}</td>
     <td>${vendedorCell(r['Vendedor asignado'])}</td>
   </tr>`}).join('')}</tbody></table>`;
@@ -2046,8 +2054,8 @@ function renderMetricsReuniones(rows){
       <div class="chart-title">Qu&eacute; canal cierra</div>
       <div class="chart-note">Sobre reuniones presentadas. Canales con 3 o m&aacute;s. Al que convirti&oacute; se le aplica la misma
         cascada de atribuci&oacute;n que al lead (calendario de la reuni&oacute;n), si no los dos grupos no ser&iacute;an comparables.</div>
-      <table class="comp-table"><thead><tr><th>Canal</th><th class="num">Presentadas</th><th class="num">Cerraron</th><th class="num">% cierre</th></tr></thead>
-      <tbody>${filas.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num">${v.p}</td><td class="num">${v.c}</td><td class="num">${pct(v.c,v.p)}%</td></tr>`).join('')}</tbody></table>
+      <div class="table-scroll"><table class="comp-table"><thead><tr><th>Canal</th><th class="num">Presentadas</th><th class="num">Cerraron</th><th class="num">% cierre</th></tr></thead>
+      <tbody>${filas.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num">${v.p}</td><td class="num">${v.c}</td><td class="num">${pct(v.c,v.p)}%</td></tr>`).join('')}</tbody></table></div>
     </div>`;
   })();
 
@@ -2171,8 +2179,8 @@ function getExportData(){
     return{headers,data};
   }
   if(currentTab==='leads'){
-    headers=['Fecha','Servicio','Nombre','Canal','Landing Origen','Origen del dato','Calificacion','Telefono','Mail','Agendo','Retargeting','Proximo mensaje','Via de cierre','Modalidad de pago','Vendedor'];
-    data=rows.map(r=>[r['Fecha'],r['Servicio'],r['Nombre y Apellido'],r['Canal'],r['Landing Origen'],r['Origen del dato'],r['Calificaci\u00f3n']||r['Calificacion'],r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'],r['Mail'],r['\u00bfAgend\u00f3?'],r['Retargeting'],r['Pr\u00f3ximo mensaje'],r['Modalidad de cierre'],r['Modalidad de pago'],r['Vendedor asignado']]);
+    headers=['Fecha','Servicio','Nombre','Canal','Landing Origen','Origen del dato','Calificacion','Telefono','Mail','Agendo','Retargeting','Cerro','Proximo mensaje','Via de cierre','Modalidad de pago','Vendedor'];
+    data=rows.map(r=>[r['Fecha'],r['Servicio'],r['Nombre y Apellido'],r['Canal'],r['Landing Origen'],r['Origen del dato'],r['Calificaci\u00f3n']||r['Calificacion'],r['M\u00f3vil']||r['Movil']||r['Tel\u00e9fono']||r['Telefono'],r['Mail'],r['\u00bfAgend\u00f3?'],r['Retargeting'],r['¿Cerró?'],r['Pr\u00f3ximo mensaje'],r['Modalidad de cierre'],r['Modalidad de pago'],r['Vendedor asignado']]);
   }else if(currentTab==='llcs'){
     headers=['Fecha','LLC','Etapa','Nombre','Email','Telefono','Tipo de Origen','Partner','Canal','Vendedor','Pago'];
     data=rows.map(r=>[r['Fecha'],r['LLC'],r['Etapa'],r['Nombre'],r['Email'],r['Teléfono'],r['Tipo de Origen'],r['Partner'],r['Canal de Origen'],r['Vendedor'],r['Confirmación de pago']]);
