@@ -397,6 +397,7 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
       <button class="tab active" onclick="switchTab('leads')">Lead Totales</button>
       <button class="tab" onclick="switchTab('llcs')">LLCs Apertura</button>
       <button class="tab" onclick="switchTab('reuniones')">Reuniones</button>
+      <button class="tab" onclick="switchTab('renovaciones')">Renovaciones</button>
       <button class="tab" onclick="switchTab('seguimientos')">Seguimientos</button>
       <button class="tab" onclick="switchTab('calidad')">Calidad de Datos</button>
     </div>
@@ -442,6 +443,19 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
       <div class="note-modal-actions">
         <button class="note-cancel" onclick="cerrarInversion()">Cancelar</button>
         <button class="note-save" onclick="guardarInversion()">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Precios de renovación -->
+  <div class="note-modal-overlay" id="preciosOverlay" onclick="if(event.target===this)cerrarPrecios()">
+    <div class="note-modal inv-modal">
+      <h3>Precios de renovaci&oacute;n</h3>
+      <div class="note-who">El importe de las renovaciones no se carga en Zoho, as&iacute; que el panel las valoriza con esta tabla. Cambia por estado y seg&uacute;n si la LLC es de un solo miembro o de varios.</div>
+      <div id="preciosCampos"></div>
+      <div class="note-modal-actions">
+        <button class="note-cancel" onclick="cerrarPrecios()">Cancelar</button>
+        <button class="note-save" onclick="guardarPrecios()">Guardar</button>
       </div>
     </div>
   </div>
@@ -538,8 +552,8 @@ function authHeaders(extra){
 
 // ===== STATE =====
 let DATA=null, currentTab='leads', filters={};
-const TITLES={leads:'Lead Totales y Flujos',llcs:'LLCs Apertura Mes Actual',reuniones:'Reuniones, presentadas y cierres',seguimientos:'Seguimientos',calidad:'Calidad de Datos'};
-const TABS=['leads','llcs','reuniones','seguimientos','calidad'];
+const TITLES={leads:'Lead Totales y Flujos',llcs:'LLCs Apertura Mes Actual',reuniones:'Reuniones, presentadas y cierres',renovaciones:'Renovaciones',seguimientos:'Seguimientos',calidad:'Calidad de Datos'};
+const TABS=['leads','llcs','reuniones','renovaciones','seguimientos','calidad'];
 
 // ===== DATE HELPERS =====
 function parseDate(str){if(!str)return null;const d=new Date(str);return isNaN(d)?null:d}
@@ -1045,6 +1059,139 @@ async function guardarMetas(){
   }catch(e){showError('Error guardando las metas: '+e.message)}
 }
 
+// ===== PRECIOS DE RENOVACIÓN =====
+// El importe de las renovaciones esta en cero en Zoho (0 de 218), asi que 194
+// cobradas no sumaban un peso. El precio depende del estado y de si la LLC es
+// de un solo miembro o de varios, y los dos datos SI estan en el CRM. Con esta
+// tabla el panel las valoriza, sin escribir nada en Zoho: el dia que alguien
+// cargue el importe real, ese gana y la estimacion se apaga sola.
+let PRECIOS={};
+const ESTADOS_RENOV=['New Mexico','Wyoming','Florida','Delaware','Texas','New York','California'];
+
+async function cargarPrecios(){
+  try{
+    const r=await fetch('/.netlify/functions/precios',{headers:authHeaders()});
+    if(r.ok)PRECIOS=await r.json();
+  }catch(e){/* sin precios el panel muestra las renovaciones sin valorizar */}
+}
+
+function estadosParaPrecios(){
+  const vistos=new Set(((DATA&&DATA.renovaciones)||[]).map(r=>r['Estado']).filter(e=>e&&e!==SIN_DATO));
+  ESTADOS_RENOV.forEach(e=>vistos.add(e));
+  Object.keys(PRECIOS||{}).forEach(e=>vistos.add(e));
+  return [...vistos].sort();
+}
+
+function abrirPrecios(){
+  const filas=estadosParaPrecios().map(e=>`
+    <label class="inv-fila"><span>${esc(e)}</span>
+      <input type="number" min="0" step="1" class="filter-select precio-input" data-estado="${esc(e)}" data-plan="SM"
+        value="${(PRECIOS[e]&&PRECIOS[e].SM)||''}" placeholder="1 miembro">
+      <input type="number" min="0" step="1" class="filter-select precio-input" data-estado="${esc(e)}" data-plan="MM"
+        value="${(PRECIOS[e]&&PRECIOS[e].MM)||''}" placeholder="varios">
+    </label>`).join('');
+  document.getElementById('preciosCampos').innerHTML=
+    `<div class="inv-mes"><div class="inv-mes-tit">Precio de renovaci&oacute;n por estado</div>
+      <div class="note-who" style="margin:0 0 8px">Primera casilla: LLC de un solo miembro. Segunda: de varios. Dej&aacute; vac&iacute;o lo que no sepas.</div>
+      ${filas}</div>`;
+  document.getElementById('preciosOverlay').classList.add('show');
+}
+function cerrarPrecios(){document.getElementById('preciosOverlay').classList.remove('show')}
+
+async function guardarPrecios(){
+  const nuevo={};
+  document.querySelectorAll('.precio-input').forEach(i=>{
+    const e=i.dataset.estado,p=i.dataset.plan,v=parseFloat(i.value);
+    if(!isNaN(v)&&v>0){if(!nuevo[e])nuevo[e]={};nuevo[e][p]=v}
+  });
+  try{
+    const r=await fetch('/.netlify/functions/precios',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({precios:nuevo})});
+    if(!r.ok){const j=await r.json().catch(()=>({}));showError('No se pudieron guardar los precios: '+(j.error||('HTTP '+r.status)));return}
+    PRECIOS=await r.json();
+    cerrarPrecios();
+    updateMetrics();renderTable();
+  }catch(e){showError('Error guardando los precios: '+e.message)}
+}
+
+// ===== RENOVACIONES =====
+// El importe real de Zoho manda siempre. Si no esta, se estima con la tabla de
+// precios: el estado de registro y la estructura societaria estan cargados en
+// 216 y 193 de las renovaciones cobradas, asi que no hay que adivinar nada.
+function importeRenovacion(r){
+  const real=Number(r['Importe']);
+  if(real>0)return{monto:real,origen:'Cargado en Zoho'};
+  if(r['¿Cobrada?']!=='Sí')return{monto:0,origen:''};
+  const p=PRECIOS&&PRECIOS[r['Estado']]&&r['Plan']?PRECIOS[r['Estado']][r['Plan']]:null;
+  if(p>0)return{monto:p,origen:'Estimado'};
+  return{monto:0,origen:'Falta el precio'};
+}
+
+function renderRenovaciones(rows){
+  if(!rows.length)return'<div class="loading"><div class="loading-text">Sin datos con los filtros aplicados</div></div>';
+  return `<table><thead><tr>
+    ${th('Fecha','Fecha')}${th('LLC','LLC')}${th('Estado','Estado')}${th('Estructura','Estructura')}
+    ${th('Etapa','Etapa')}${th('¿Cobrada?','¿Cobrada?')}${th('Importe','Importe')}${th('Origen del importe','De dónde sale')}
+  </tr></thead><tbody>${rows.map(r=>`<tr>
+    <td>${esc(r['Fecha'])}</td>
+    <td><strong>${esc(r['LLC'])}</strong></td>
+    <td>${esc(r['Estado'])}</td>
+    <td>${esc(r['Estructura'])}</td>
+    <td>${esc(r['Etapa'])}</td>
+    <td>${r['¿Cobrada?']==='Sí'?'<span class="badge badge-green">Cobrada</span>':'<span class="badge badge-gray">No</span>'}</td>
+    <td>${(()=>{const i=importeRenovacion(r);return i.monto?money(i.monto):'<span class="badge badge-gray">&mdash;</span>'})()}</td>
+    <td>${(()=>{const o=importeRenovacion(r).origen;
+      return o==='Cargado en Zoho'?'<span class="badge badge-green">Zoho</span>'
+        :o==='Estimado'?'<span class="badge badge-gold">Estimado</span>'
+        :o==='Falta el precio'?'<span class="badge badge-red">Falta el precio</span>':'<span class="badge badge-gray">&mdash;</span>'})()}</td>
+  </tr>`).join('')}</tbody></table>`;
+}
+
+function renderMetricsRenovaciones(rows){
+  const cob=rows.filter(r=>r['¿Cobrada?']==='Sí');
+  const val=cob.map(r=>importeRenovacion(r));
+  const con=val.filter(v=>v.monto>0);
+  const total=con.reduce((a,v)=>a+v.monto,0);
+  const reales=val.filter(v=>v.origen==='Cargado en Zoho').length;
+  const faltan=cob.length-con.length;
+
+  const kpis=`<div class="kpi-row">
+    ${kpiTile('Renovaciones',rows.length,'en el per&iacute;odo elegido','',null)}
+    ${kpiTile('Cobradas',cob.length,pct(cob.length,rows.length)+'% del total','',null)}
+    ${kpiTile('Facturado',money(total),con.length+' de '+cob.length+' valorizadas','',null)}
+    ${kpiTile('Precio promedio',con.length?money(total/con.length):'&mdash;','por renovaci&oacute;n cobrada','',null)}
+    ${kpiTile('Sin precio',faltan,faltan?'falta cargar el precio de su estado':'todas valorizadas','',null)}
+  </div>`;
+
+  const aviso=`<div class="chart-note" style="margin-bottom:14px">
+    <b>Casi todo este dinero es estimado.</b> El importe est&aacute; cargado en Zoho en ${reales} de las ${cob.length} renovaciones cobradas;
+    el resto se valoriza con la tabla de precios por estado y estructura societaria, que son dos datos que el CRM s&iacute; tiene.
+    Si alguien carga el importe real en un trato, ese gana y la estimaci&oacute;n se apaga sola.
+    <button class="btn-metas" style="margin:8px 0 0" onclick="abrirPrecios()">Editar precios de renovaci&oacute;n</button></div>`;
+
+  const porEstado=(()=>{
+    const m={};
+    cob.forEach(r=>{const k=(r['Estado']||SIN_DATO)+' &middot; '+(r['Estructura']||SIN_DATO);
+      // `con` cuenta las que tienen precio: sin eso el promedio divide por las
+      // que no valen nada y da un precio que no es el de nadie.
+      m[k]=m[k]||{n:0,con:0,s:0};m[k].n++;
+      const i=importeRenovacion(r);if(i.monto){m[k].con++;m[k].s+=i.monto}});
+    const filas=Object.entries(m).sort((a,b)=>b[1].s-a[1].s);
+    if(!filas.length)return'';
+    return`<div class="chart-card">
+      <div class="chart-title">Qu&eacute; se renov&oacute; y cu&aacute;nto dej&oacute;</div>
+      <div class="chart-note">Sólo las cobradas. El precio sale del estado de registro y de la estructura societaria.</div>
+      <div class="table-scroll"><table class="comp-table"><thead><tr>
+        <th>Estado y estructura</th><th class="num">Cobradas</th><th class="num">Precio</th><th class="num">Facturado</th>
+      </tr></thead><tbody>
+      ${filas.map(([k,v])=>`<tr class="${v.s?'':'comp-cero'}"><td>${k}</td><td class="num">${v.n}${v.con<v.n?' <span class="parcial">'+(v.n-v.con)+' sin precio</span>':''}</td>
+        <td class="num">${v.con?money(v.s/v.con):'&mdash;'}</td><td class="num"><b>${v.s?money(v.s):'&mdash;'}</b></td></tr>`).join('')}
+      </tbody></table></div>
+    </div>`;
+  })();
+
+  return kpis+aviso+`<div class="charts-row">${porEstado}</div>`;
+}
+
 // ===== INVERSIÓN =====
 // Se carga a mano a proposito: traerla de la API de Meta obligaria al tablero a
 // consultar la cuenta publicitaria todo el dia. Una vez por mes alcanza, y el
@@ -1405,6 +1552,7 @@ function updateMetrics(){
   else if(currentTab==='leads') el.innerHTML=renderMetricsLeads(rows,DATA.llcs,DATA.seguimientos);
   else if(currentTab==='llcs') el.innerHTML=renderMetricsLLCs(rows,DATA.leads);
   else if(currentTab==='reuniones') el.innerHTML=renderMetricsReuniones(rows);
+  else if(currentTab==='renovaciones') el.innerHTML=renderMetricsRenovaciones(rows);
   else el.innerHTML=renderMetricsSeguimientos(rows);
 }
 
@@ -1773,6 +1921,12 @@ function buildFilters(){
     html+=multiSelectHTML('calendario','Calendario',getUniqueValues(DATA.reuniones,'Calendario'));
     html+=multiSelectHTML('anticipacion','Anticipación',getUniqueValues(DATA.reuniones,'Anticipación'));
     html+=filterPeriodo()+filterDate('desde','Desde')+filterDate('hasta','Hasta');
+  } else if(currentTab==='renovaciones'){
+    html+=multiSelectHTML('estado','Estado',getUniqueValues(DATA.renovaciones,'Estado'));
+    html+=multiSelectHTML('estructura','Estructura',getUniqueValues(DATA.renovaciones,'Estructura'));
+    html+=multiSelectHTML('cobrada','¿Cobrada?',getUniqueValues(DATA.renovaciones,'¿Cobrada?'));
+    html+=multiSelectHTML('etapa','Etapa',getUniqueValues(DATA.renovaciones,'Etapa'));
+    html+=filterPeriodo()+filterDate('desde','Desde')+filterDate('hasta','Hasta');
   } else if(currentTab==='llcs'){
     html+=multiSelectHTML('etapa','Etapa',getUniqueValues(DATA.llcs,'Etapa'));
     html+=multiSelectHTML('tipoOrigen','Tipo',getUniqueValues(DATA.llcs,'Tipo de Origen'));
@@ -1858,6 +2012,14 @@ function getFilteredRowsBase(){
       if(!matchesMulti(r['Landing Origen'],'landing'))return false;
       if(!matchesMulti(r['Calendario'],'calendario'))return false;
       if(!matchesMulti(r['Anticipación'],'anticipacion'))return false;
+      return matchesDateRange(r['Fecha']);
+    });
+  } else if(currentTab==='renovaciones'){
+    return (DATA.renovaciones||[]).filter(r=>{
+      if(!matchesMulti(r['Estado'],'estado'))return false;
+      if(!matchesMulti(r['Estructura'],'estructura'))return false;
+      if(!matchesMulti(r['¿Cobrada?'],'cobrada'))return false;
+      if(!matchesMulti(r['Etapa'],'etapa'))return false;
       return matchesDateRange(r['Fecha']);
     });
   } else if(currentTab==='llcs'){
@@ -2317,6 +2479,7 @@ function renderTable(){
   else if(currentTab==='leads')el.innerHTML=aviso+renderLeads(rows);
   else if(currentTab==='llcs')el.innerHTML=aviso+renderLLCs(rows);
   else if(currentTab==='reuniones')el.innerHTML=aviso+renderReuniones(rows);
+  else if(currentTab==='renovaciones')el.innerHTML=aviso+renderRenovaciones(rows);
   else el.innerHTML=aviso+renderSeguimientos(rows);
 }
 
@@ -2367,6 +2530,10 @@ function getExportData(){
   }else if(currentTab==='llcs'){
     headers=['Fecha','LLC','Etapa','Nombre','Email','Telefono','Tipo de Origen','Partner','Canal','Vendedor','Pago'];
     data=rows.map(r=>[r['Fecha'],r['LLC'],r['Etapa'],r['Nombre'],r['Email'],r['Teléfono'],r['Tipo de Origen'],r['Partner'],r['Canal de Origen'],r['Vendedor'],r['Confirmación de pago']]);
+  }else if(currentTab==='renovaciones'){
+    headers=['Fecha','LLC','Estado','Estructura','Etapa','Cobrada','Importe','Origen del importe'];
+    data=rows.map(r=>{const i=importeRenovacion(r);
+      return [r['Fecha'],r['LLC'],r['Estado'],r['Estructura'],r['Etapa'],r['¿Cobrada?'],i.monto||'',i.origen]});
   }else if(currentTab==='reuniones'){
     headers=['Fecha','Nombre','Calendario','Canal','Landing Origen','Estado','Se presento','Cerro','Servicio','Retargeting','Anticipacion','Registro'];
     data=rows.map(r=>[r['Fecha'],r['Nombre'],r['Calendario'],r['Canal'],r['Landing Origen'],r['Estado'],r['¿Se presentó?'],r['¿Cerró?'],r['Servicio'],r['Retargeting'],r['Anticipación'],r['Estado del registro']]);
@@ -2425,6 +2592,7 @@ async function fetchData(){
     await loadNotes();
     await cargarInversion();
     await cargarMetas();
+    await cargarPrecios();
     if(!filters.periodo)applyPeriodo(defaultPeriodo(currentTab));
     updateMetrics();buildFilters();renderTable();
     const cacheStatus=res.headers.get('X-Cache');

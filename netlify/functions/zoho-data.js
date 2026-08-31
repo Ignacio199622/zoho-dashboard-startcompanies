@@ -889,6 +889,59 @@ function buildSerieFormMeta(leadsLigeros, events) {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Renovaciones
+//
+// El `Amount` esta en CERO de las 218 renovaciones, asi que hasta ahora 194
+// renovaciones cobradas no sumaban un peso en ningun reporte y el retorno de
+// cada canal quedaba subestimado: se comparaba el costo de traer un cliente
+// contra lo que ese cliente pago UNA sola vez.
+//
+// El precio depende del estado y de si la LLC es de un solo miembro o de
+// varios, y los dos datos estan en el CRM con buena cobertura. Si el trato
+// tiene importe real cargado, ese gana; si no, se estima con la tabla de
+// precios y la fila queda marcada como estimada.
+// ---------------------------------------------------------------------------
+function estructuraDe(deal, cuenta) {
+  const v = deal.Estructura_Societaria || (cuenta && cuenta.Estructura_Societaria) || '';
+  if (/solo miembro|single/i.test(v)) return 'SM';
+  if (/ltiples miembros|multi/i.test(v)) return 'MM';
+  return '';
+}
+
+function buildRenovaciones(deals, cuentas, precios) {
+  const porId = {};
+  cuentas.forEach(c => { porId[c.id] = c; });
+  const tabla = precios || {};
+
+  return deals
+    .filter(d => /renovaci/i.test(d.Type || ''))
+    .map(d => {
+      const c = (d.Account_Name && porId[d.Account_Name.id]) || null;
+      const estado = (c && String(c.Estado_de_Registro || '').trim()) || SIN_DATO;
+      const estr = estructuraDe(d, c);
+      const real = (d.Amount === null || d.Amount === undefined || d.Amount === '')
+        ? null : Number(d.Amount);
+      const dePrecio = (tabla[estado] && estr && tabla[estado][estr]) || null;
+      const cobrada = /completa|confirmada/i.test(d.Stage || '');
+      return {
+        'Fecha': fmtDate(d.Created_Time),
+        'LLC': (d.Account_Name && d.Account_Name.name) || d.Deal_Name || '',
+        'Etapa': d.Stage || SIN_DATO,
+        'Estado': estado,
+        'Estructura': estr === 'SM' ? 'Un solo miembro' : (estr === 'MM' ? 'Múltiples miembros' : SIN_DATO),
+        '¿Cobrada?': cobrada ? 'Sí' : 'No',
+        // Sólo el importe REAL de Zoho. La estimación la hace el panel con la
+        // tabla de precios, para que al editarla el número cambie en el acto en
+        // vez de esperar a que se refresque el cache de esta función.
+        'Importe': real !== null ? real : '',
+        'Plan': estr,
+        'Estimable': (cobrada && dePrecio) ? 'Sí' : 'No'
+      };
+    })
+    .sort((a, b) => new Date(b.Fecha) - new Date(a.Fecha));
+}
+
 // Auditoría de duplicados e integridad de los tratos
 //
 // El CRM no tiene duplicados exactos: el patrón es siempre el mismo, una cuenta
@@ -1223,7 +1276,8 @@ const CALIDAD_LEADS = [
 
 const DEAL_FIELDS = ['Created_Time', 'Deal_Name', 'Stage', 'Quien_lo_vendio', 'Landing_Origen',
   'Pago', 'Medios_de_pago', 'Producto', 'Estado_de_Registro', 'Fecha_de_constituci_n',
-  'Type', 'Account_Name', 'Contact_Name', 'Tel_fono', 'Owner', 'Partner', 'Amount'];
+  'Type', 'Account_Name', 'Contact_Name', 'Tel_fono', 'Owner', 'Partner', 'Amount',
+  'Estructura_Societaria'];
 
 const CALIDAD_DEALS = [
   { key: 'Quien_lo_vendio', label: '¿Quién lo vendió?' },
@@ -1362,7 +1416,7 @@ exports.handler = async (event) => {
       // Si esta falla, el panel pierde una tarjeta y nada más: no bloquea.
       pullLeadsFormulario(token).catch(() => []),
       // Las cuentas son las LLC: hacen falta para ver duplicados.
-      crmGetSince(token, 'Accounts', 'Account_Name,Created_Time', new Date('2025-01-01T00:00:00-03:00'), 40, 6).catch(() => [])
+      crmGetSince(token, 'Accounts', 'Account_Name,Created_Time,Estado_de_Registro,Estructura_Societaria', new Date('2025-01-01T00:00:00-03:00'), 40, 6).catch(() => [])
     ]);
 
     const canalPorMail = {};
@@ -1374,6 +1428,16 @@ exports.handler = async (event) => {
 
     const llcsData = await buildLLCs(token, deals, canalPorMail);
     const [llcs, seguimientos] = [llcsData.rows, leadsData.seguimientos];
+
+    // Los precios de renovación viven en Blobs, igual que la inversión: si la
+    // lectura falla, el panel muestra las renovaciones sin valorizar.
+    let precios = {};
+    try {
+      const { getStore } = await import('@netlify/blobs');
+      precios = (await getStore({ name: 'precios', consistency: 'strong' })
+        .get('precios-renovacion', { type: 'json' })) || {};
+    } catch (e) { precios = {}; }
+    const renovaciones = buildRenovaciones(deals, cuentas, precios);
 
     const conversion = completarConversion(
       leadsData.rows, leadsData.raw, deals, llcsData.contactos, leadsData.evPorContacto);
@@ -1400,6 +1464,8 @@ exports.handler = async (event) => {
       // Serie propia del formulario de Meta, desde el piso del CRM.
       conversion,
       auditoria: auditar(cuentas, deals),
+      renovaciones,
+      preciosRenovacion: precios,
       // Cuánto del importe está realmente cargado: sin esto un total parcial se
       // lee como la facturación completa.
       facturacion: (() => {
