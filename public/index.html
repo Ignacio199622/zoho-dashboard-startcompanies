@@ -162,6 +162,22 @@ tr.alert-row td:first-child::before{content:'\1F525 ';font-size:13px}
 .comp-table td,.comp-table th{white-space:nowrap}
 .comp-table th.sub{font-size:9px;opacity:.75;padding-top:0}
 .comp-table td.cierre-si{color:var(--green);font-weight:600}
+.parcial{font-size:10px;color:var(--gold);font-weight:600;cursor:help}
+.aud-table td{padding:9px 14px;border-bottom:1px solid var(--border)}
+.aud-table td.q-num{font-weight:700;font-size:16px;text-align:right;width:70px;font-variant-numeric:tabular-nums}
+.canales-grid{display:flex;flex-direction:column;gap:14px;margin-top:6px}
+.canal-fila{border-top:1px solid var(--border);padding-top:10px}
+.canal-nombre{font-size:12px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between}
+.canal-tot{color:var(--text2);font-weight:400}
+.mini-chart{display:flex;align-items:flex-end;gap:8px;height:52px}
+.mini-chart.cierres{height:26px;margin-top:3px;align-items:flex-start}
+.mini-col{flex:0 0 52px;height:100%;display:flex;align-items:flex-end}
+.mini-chart.cierres .mini-col{align-items:flex-start}
+.mini-bar{width:100%;border-radius:2px;min-height:0}
+.mini-bar.leads{background:var(--blue);opacity:.55}
+.mini-bar.ce{background:var(--green)}
+.mini-meses{display:flex;gap:8px;margin-top:4px}
+.mini-meses span{flex:0 0 52px;text-align:center;font-size:10px;color:var(--text2)}
 .comp-table td.cierre-cero{color:var(--red);font-weight:600}
 .comp-table .num{text-align:right;font-variant-numeric:tabular-nums}
 .comp-mejor td{background:rgba(0,182,122,.10)}
@@ -1298,7 +1314,8 @@ function renderComparativaMensual(allLeads){
     </tbody></table></div>
   </div>`;
 
-  return`<div class="charts-row">${filaMes}</div><div class="charts-row">${matriz}</div>`;
+  return`<div class="charts-row">${filaMes}</div><div class="charts-row">${matriz}</div>`
+    +`<div class="charts-row">${renderCanalesEnElTiempo(allLeads)}</div>`;
 }
 
 
@@ -2009,6 +2026,98 @@ function renderFormMeta(){
   </div>`;
 }
 
+
+// ===== AUDITORIA: DUPLICADOS E INTEGRIDAD DE LOS TRATOS =====
+// Va en Calidad de Datos porque es lo mismo que mide esa solapa: no cuanto
+// vendimos, sino cuanto de lo que el CRM dice se puede creer.
+function renderAuditoria(){
+  const a=DATA&&DATA.auditoria;
+  if(!a)return'';
+  const d=a.duplicados,t=a.tratos;
+  const fila=(q,txt,tono)=>`<tr><td class="q-num ${tono||''}">${q}</td><td style="white-space:normal">${txt}</td></tr>`;
+  const casos=d.casos&&d.casos.length
+    ? '<div class="chart-note" style="margin-top:10px">Los que duplican una venta: '
+      + d.casos.map(c=>`<b>${esc(c.nombres.join(' / '))}</b>${c.monto?' ('+money(c.monto)+')':''}`).join(' &middot; ') + '</div>'
+    : '';
+  return`<div class="q-block">
+    <div class="q-title">LLCs duplicadas</div>
+    <div class="chart-note">No hay duplicados exactos: el patr&oacute;n es siempre una cuenta &laquo;X LLC&raquo; y otra &laquo;X&raquo;.
+      Se comparan los nombres sin el sufijo societario ni la puntuaci&oacute;n, sobre ${a.cuentas} cuentas.</div>
+    <div class="table-scroll"><table class="comp-table aud-table"><tbody>
+      ${fila(d.grupos,'grupos de LLC duplicada, con <b>'+d.registros+'</b> registros involucrados','q-mid')}
+      ${fila(d.cascaras,'de esos, la segunda cuenta no tiene ning&uacute;n trato: es una c&aacute;scara vac&iacute;a y se puede borrar')}
+      ${fila(d.ambasConTrato,'tienen tratos en las dos cuentas: el mismo cliente partido al medio','q-mid')}
+      ${fila(d.aperturaDoble,'duplican una <b>apertura</b>, o sea la venta contada dos veces'+(d.montoDoble?' ('+money(d.montoDoble)+')':''),d.aperturaDoble?'q-bad':'q-ok')}
+    </tbody></table></div>
+    ${casos}
+  </div>
+  <div class="q-block">
+    <div class="q-title">Estado de los tratos</div>
+    <div class="chart-note">Sobre los ${t.total} tratos del CRM.</div>
+    <div class="table-scroll"><table class="comp-table aud-table"><tbody>
+      ${fila(t.sinTipo,'tratos <b>sin tipo</b>: no se sabe si son apertura, renovaci&oacute;n o cuenta bancaria',t.sinTipo?'q-mid':'q-ok')}
+      ${fila(t.sinContacto,'tratos <b>sin contacto asociado</b>: no se pueden conectar con el lead que los origin&oacute;','q-bad')}
+      ${fila(t.aperturasSinImporte,'aperturas <b>sin importe</b> de '+t.aperturas+': el facturado que muestra el panel es un piso','q-mid')}
+      ${fila(t.aperturasSinContacto,'aperturas sin contacto: son las que no se pueden atribuir a ning&uacute;n canal','q-bad')}
+      ${fila(t.dosAperturasMismaCuenta,'cuentas con <b>dos aperturas propias</b>',t.dosAperturasMismaCuenta>1?'q-bad':'q-ok')}
+      ${fila(t.estancadas180,'aperturas paradas hace <b>m&aacute;s de 180 d&iacute;as</b> en una etapa que no es final','q-bad')}
+    </tbody></table></div>
+    <div class="chart-note" style="margin-top:10px"><b>La etapa del trato no se usa como pipeline.</b>
+      ${Object.entries(t.etapas).sort((x,y)=>y[1]-x[1]).map(([k,v])=>esc(k)+' '+v).join(' &middot; ')}.
+      Con ${t.etapas['Apertura Activa']||0} de ${t.aperturas} en una sola etapa, cualquier m&eacute;trica de avance es humo.</div>
+  </div>`;
+}
+
+// ===== CANALES EN EL TIEMPO =====
+// El comparador dice como viene cada canal HOY; esto dice si esta subiendo o
+// cayendo. Dos series por canal: cuanta gente trajo y cuantos clientes dejo.
+function renderCanalesEnElTiempo(allLeads){
+  if(!allLeads||!allLeads.length)return'';
+  const map={};
+  allLeads.forEach(r=>{
+    const d=parseDate(r['Fecha']);if(!d)return;
+    const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
+    const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    const e=map[c]=map[c]||{tot:0,meses:{}};
+    const m=e.meses[k]=e.meses[k]||{n:0,ce:0};
+    e.tot++;m.n++;
+    if(r['¿Cerró?']==='Sí')m.ce++;
+  });
+  let keys=[...new Set(Object.values(map).flatMap(v=>Object.keys(v.meses)))].sort();
+  if(DATA&&DATA.leadsSince){
+    const s2=new Date(DATA.leadsSince);
+    let first=s2.getUTCFullYear()+'-'+String(s2.getUTCMonth()+1).padStart(2,'0');
+    if(s2.getUTCDate()!==1){const n=new Date(Date.UTC(s2.getUTCFullYear(),s2.getUTCMonth()+1,1));first=n.getUTCFullYear()+'-'+String(n.getUTCMonth()+1).padStart(2,'0')}
+    keys=keys.filter(k=>k>=first);
+  }
+  if(keys.length<2)return'';
+  const orden=Object.entries(map).sort((a,b)=>b[1].tot-a[1].tot).slice(0,5).map(([c])=>c);
+  const label=k=>{const p=k.split('-');return MES_CORTO[parseInt(p[1],10)-1]};
+  const maxLeads=Math.max(...orden.flatMap(c=>keys.map(k=>(map[c].meses[k]||{n:0}).n)),1);
+  const maxCe=Math.max(...orden.flatMap(c=>keys.map(k=>(map[c].meses[k]||{ce:0}).ce)),1);
+
+  const barras=(c,campo,max,clase)=>keys.map(k=>{
+    const v=(map[c].meses[k]||{n:0,ce:0})[campo];
+    const alto=Math.round(v/max*100);
+    return`<div class="mini-col" data-tip="${esc(c)} &middot; ${label(k)}: ${v} ${campo==='n'?'leads':'cierres'}">
+      <div class="mini-bar ${clase}" style="height:${Math.max(alto,v?4:0)}%"></div></div>`;
+  }).join('');
+
+  return`<div class="chart-card">
+    <div class="chart-title">C&oacute;mo viene cada canal</div>
+    <div class="chart-note">Los cinco canales m&aacute;s grandes, mes a mes. Arriba cu&aacute;nta gente trajo, abajo cu&aacute;ntos clientes dej&oacute;.
+      No depende del filtro de per&iacute;odo. Pas&aacute; el mouse por cada barra.</div>
+    <div class="canales-grid">
+      ${orden.map(c=>`<div class="canal-fila">
+        <div class="canal-nombre">${esc(c)}<span class="canal-tot">${map[c].tot} leads</span></div>
+        <div class="mini-chart">${barras(c,'n',maxLeads,'leads')}</div>
+        <div class="mini-chart cierres">${barras(c,'ce',maxCe,'ce')}</div>
+        <div class="mini-meses">${keys.map(k=>`<span>${label(k)}</span>`).join('')}</div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
 // ===== DESDE CUANDO VALE CADA COSA =====
 // Las cuatro series del panel no arrancan en el mismo lugar y hasta ahora nada
 // lo decia. Sin esto, comparar "leads por mes" contra "cierres por mes" contra
@@ -2152,6 +2261,7 @@ function renderCalidad(){
   El dashboard solo puede mostrar lo que est&aacute; ac&aacute; en verde: donde dice 0% no hay un problema de reporte,
   no hay dato. <strong>Vendedor real</strong> cuenta los leads cuyo due&ntilde;o no es el usuario gen&eacute;rico
   &laquo;Start Companies Staff&raquo;.</div>
+  ${renderAuditoria()}
   ${renderDesde()}
   ${bloqueCalidad('Leads',DATA.calidad.leads)}
   ${bloqueCalidad('LLCs / Aperturas',DATA.calidad.llcs)}`;

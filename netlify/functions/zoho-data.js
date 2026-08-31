@@ -889,6 +889,87 @@ function buildSerieFormMeta(leadsLigeros, events) {
 }
 
 // ---------------------------------------------------------------------------
+// Auditoría de duplicados e integridad de los tratos
+//
+// El CRM no tiene duplicados exactos: el patrón es siempre el mismo, una cuenta
+// "X LLC" y otra "X". Por eso se compara el nombre normalizado (sin el sufijo
+// societario ni puntuación) y sólo se reporta el grupo si además está escrito
+// distinto, para no marcar como duplicado algo que es una sola cuenta.
+// ---------------------------------------------------------------------------
+const SUFIJOS = /\b(llc|l l c|inc|corp|corporation|company|co)\b/g;
+function normalizarNombre(v) {
+  return String(v || '').toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(SUFIJOS, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function auditar(cuentas, deals) {
+  const dealsPorCuenta = {};
+  deals.forEach(d => {
+    const a = d.Account_Name && d.Account_Name.id;
+    if (a) (dealsPorCuenta[a] = dealsPorCuenta[a] || []).push(d);
+  });
+  const esApertura = d => (d.Type || '').toLowerCase().indexOf('apertura') === 0;
+
+  const grupos = {};
+  cuentas.forEach(c => {
+    const k = normalizarNombre(c.Account_Name);
+    if (k) (grupos[k] = grupos[k] || []).push(c);
+  });
+  const dup = Object.values(grupos).filter(v =>
+    v.length > 1 && new Set(v.map(x => String(x.Account_Name).trim().toLowerCase())).size > 1);
+
+  let cascaras = 0, ambasConTrato = 0, aperturaDoble = 0, montoDoble = 0;
+  const casos = [];
+  dup.forEach(v => {
+    const conTrato = v.filter(c => (dealsPorCuenta[c.id] || []).length);
+    if (conTrato.length === 1) cascaras++;
+    if (conTrato.length > 1) {
+      ambasConTrato++;
+      const ap = conTrato.flatMap(c => (dealsPorCuenta[c.id] || []).filter(esApertura));
+      if (ap.length > 1) {
+        aperturaDoble++;
+        const monto = ap.reduce((s, d) => s + (Number(d.Amount) || 0), 0);
+        montoDoble += monto;
+        casos.push({ nombres: v.map(x => x.Account_Name), aperturas: ap.length, monto });
+      }
+    }
+  });
+
+  const ap = deals.filter(esApertura);
+  const vacio = d => d.Amount === null || d.Amount === undefined || d.Amount === '';
+  // Una cuenta con dos aperturas propias es venta contada dos veces; la de arriba
+  // es el mismo cliente partido en dos cuentas, que es otro problema.
+  const dosAperturas = Object.values(dealsPorCuenta).filter(v => v.filter(esApertura).length > 1).length;
+  const noTerminal = /confirmada|perdida|finalizada|cerrad/i;
+  const ahora = Date.now();
+  const estancadas = ap.filter(d => d.Stage && !noTerminal.test(d.Stage)
+    && (ahora - new Date(d.Created_Time)) / 86400000 > 180).length;
+  const etapas = {};
+  ap.forEach(d => { const k = d.Stage || 'Sin etapa'; etapas[k] = (etapas[k] || 0) + 1; });
+
+  return {
+    cuentas: cuentas.length,
+    duplicados: { grupos: dup.length, registros: dup.reduce((a, v) => a + v.length, 0),
+                  cascaras, ambasConTrato, aperturaDoble, montoDoble, casos: casos.slice(0, 10) },
+    tratos: {
+      total: deals.length,
+      sinTipo: deals.filter(d => !d.Type).length,
+      sinCuenta: deals.filter(d => !d.Account_Name).length,
+      sinContacto: deals.filter(d => !d.Contact_Name).length,
+      aperturas: ap.length,
+      aperturasSinContacto: ap.filter(d => !d.Contact_Name).length,
+      aperturasSinImporte: ap.filter(vacio).length,
+      dosAperturasMismaCuenta: dosAperturas,
+      estancadas180: estancadas,
+      etapas
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Partners
 //
 // Casi la mitad de las aperturas las trae un partner, y el panel las mostraba
@@ -1260,12 +1341,14 @@ exports.handler = async (event) => {
     // se pide una ventana larga para no perder ese histórico.
     const desdeLLCs = new Date(since.getTime() - 18 * 30 * 24 * 60 * 60 * 1000);
 
-    const [leadsData, deals, vistaLLCs, leadsFormulario] = await Promise.all([
+    const [leadsData, deals, vistaLLCs, leadsFormulario, cuentas] = await Promise.all([
       buildLeads(token),
       crmGetSince(token, 'Deals', DEAL_FIELDS.join(','), desdeLLCs),
       exportView(token, LLCS_VIEW_ID).catch(() => []),
       // Si esta falla, el panel pierde una tarjeta y nada más: no bloquea.
-      pullLeadsFormulario(token).catch(() => [])
+      pullLeadsFormulario(token).catch(() => []),
+      // Las cuentas son las LLC: hacen falta para ver duplicados.
+      crmGetSince(token, 'Accounts', 'Account_Name,Created_Time', new Date('2025-01-01T00:00:00-03:00'), 40, 6).catch(() => [])
     ]);
 
     const canalPorMail = {};
@@ -1302,6 +1385,7 @@ exports.handler = async (event) => {
       reuniones,
       // Serie propia del formulario de Meta, desde el piso del CRM.
       conversion,
+      auditoria: auditar(cuentas, deals),
       // Cuánto del importe está realmente cargado: sin esto un total parcial se
       // lee como la facturación completa.
       facturacion: (() => {
