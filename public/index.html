@@ -2062,7 +2062,17 @@ function renderAuditoria(){
       ${fila(t.dosAperturasMismaCuenta,'cuentas con <b>dos aperturas propias</b>',t.dosAperturasMismaCuenta>1?'q-bad':'q-ok')}
       ${fila(t.estancadas180,'aperturas paradas hace <b>m&aacute;s de 180 d&iacute;as</b> en una etapa que no es final','q-bad')}
     </tbody></table></div>
-    <div class="chart-note" style="margin-top:10px"><b>La etapa del trato no se usa como pipeline.</b>
+    ${a.porTipo?`<div class="chart-note" style="margin-top:14px"><b>El importe solo se carga en las aperturas.</b>
+      Todo lo dem&aacute;s se vende y se cobra, pero no queda registrado como plata en ning&uacute;n lado.</div>
+    <div class="table-scroll"><table class="comp-table"><thead><tr>
+      <th>Tipo de trato</th><th class="num">Tratos</th><th class="num">Con importe</th><th class="num">%</th><th class="num">Cobrados</th><th class="num">Facturado</th>
+    </tr></thead><tbody>
+    ${Object.entries(a.porTipo).sort((x,y)=>y[1].n-x[1].n).map(([k,v])=>`<tr class="${v.con?'':'comp-cero'}">
+      <td>${esc(k)}</td><td class="num">${v.n}</td><td class="num">${v.con}</td>
+      <td class="num"><b>${pct2(v.con,v.n)}%</b></td><td class="num">${v.cobrados}</td>
+      <td class="num">${v.monto?money(v.monto):'&mdash;'}</td></tr>`).join('')}
+    </tbody></table></div>`:''}
+    <div class="chart-note" style="margin-top:14px"><b>La etapa del trato no se usa como pipeline.</b>
       ${Object.entries(t.etapas).sort((x,y)=>y[1]-x[1]).map(([k,v])=>esc(k)+' '+v).join(' &middot; ')}.
       Con ${t.etapas['Apertura Activa']||0} de ${t.aperturas} en una sola etapa, cualquier m&eacute;trica de avance es humo.</div>
   </div>`;

@@ -950,8 +950,22 @@ function auditar(cuentas, deals) {
   const etapas = {};
   ap.forEach(d => { const k = d.Stage || 'Sin etapa'; etapas[k] = (etapas[k] || 0) + 1; });
 
+  // Cobertura del importe por TIPO. El titular: el campo solo se usa en
+  // aperturas. En renovaciones esta vacio en los 217 casos y en cuenta bancaria
+  // en 137 de 139. O sea que la facturacion del panel es solo la del primer
+  // pago del cliente, no lo que el cliente deja.
+  const porTipo = {};
+  deals.forEach(d => {
+    const k = d.Type || 'Sin tipo';
+    const t = porTipo[k] = porTipo[k] || { n: 0, con: 0, monto: 0, cobrados: 0 };
+    t.n++;
+    if (!vacio(d)) { t.con++; t.monto += Number(d.Amount) || 0; }
+    if (/completa|confirmada|finalizada/i.test(d.Stage || '')) t.cobrados++;
+  });
+
   return {
     cuentas: cuentas.length,
+    porTipo,
     duplicados: { grupos: dup.length, registros: dup.reduce((a, v) => a + v.length, 0),
                   cascaras, ambasConTrato, aperturaDoble, montoDoble, casos: casos.slice(0, 10) },
     tratos: {
