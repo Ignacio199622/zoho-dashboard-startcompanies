@@ -794,8 +794,15 @@ function lecturaDelPeriodo(rows,allLLCs){
   // Abre con el costo por cliente: es el objetivo del trimestre y antes flotaba
   // al final de la pantalla.
   const invTotal=(typeof inversionTotalDelPeriodo==='function')?inversionTotalDelPeriodo():null;
+  const facturado=rows.filter(r=>r['¿Cerró?']==='Sí').reduce((a,r)=>a+(Number(r['Importe'])||0),0);
   if(invTotal&&cierres){
     partes.push(`Cada cliente costó <b>${money(invTotal/cierres)}</b> (${money(invTotal)} de pauta sobre ${cierres} cierres).`);
+    if(facturado){
+      const ret=facturado-invTotal;
+      partes.push(ret>=0
+        ? `Se facturó <b>${money(facturado)}</b>: la pauta dejó <b>${money(ret)}</b>.`
+        : `<span class="lectura-alerta">Se facturó <b>${money(facturado)}</b>, o sea que la pauta perdió <b>${money(-ret)}</b>.</span>`);
+    }
   }else if(invTotal){
     partes.push(`<span class="lectura-alerta">Se invirtieron <b>${money(invTotal)}</b> y no hay ningún cierre en el período.</span>`);
   }
@@ -1119,12 +1126,14 @@ function comparadorCanales(rows){
   const m={};
   rows.forEach(r=>{
     const c=r['Canal']||'Otro';if(isJunkCanal(c))return;
-    if(!m[c])m[c]={n:0,ag:0,pres:0,cierres:0,ns:0};
+    if(!m[c])m[c]={n:0,ag:0,pres:0,cierres:0,ns:0,fact:0,conImp:0};
     m[c].n++;
     if(r['¿Agendó?']==='Sí')m[c].ag++;
     if(r['Estado del meeting']==='Asistió')m[c].pres++;
     if(r['Estado del meeting']==='No Asistió')m[c].ns++;
-    if(r['¿Cerró?']==='Sí')m[c].cierres++;
+    // El facturado suma solo los cierres que TIENEN importe, y se cuenta
+    // aparte cuantos no lo tienen: el total es un piso, no la verdad.
+    if(r['¿Cerró?']==='Sí'){m[c].cierres++;const im=Number(r['Importe']);if(im){m[c].fact+=im;m[c].conImp++}}
   });
   const filas=Object.entries(m).filter(([,v])=>v.n>=5).sort((a,b)=>b[1].n-a[1].n);
   if(!filas.length)return'';
@@ -1138,7 +1147,8 @@ function comparadorCanales(rows){
       ${hayInversion?'':' Cargá la inversión y aparece el costo por lead y por cierre.'}</div>
     <div class="table-scroll"><table class="comp-table"><thead><tr>
       <th>Canal</th><th class="num">Leads</th><th class="num">Agendaron</th><th class="num">Se presentaron</th><th class="num">Cierres</th><th class="num">% cierre</th><th class="num">No-show</th>
-      ${hayInversion?'<th class="num">Inversión</th><th class="num">Costo/lead</th><th class="num">Costo por cierre</th>':''}
+      <th class="num">Facturado</th>
+      ${hayInversion?'<th class="num">Inversión</th><th class="num">Costo/lead</th><th class="num">Costo por cierre</th><th class="num">Retorno</th>':''}
     </tr></thead><tbody>
     ${filas.map(([c,v])=>{
       const p=pct2(v.cierres,v.n);
@@ -1148,12 +1158,17 @@ function comparadorCanales(rows){
       const clsCac=(cacNum!==null&&metaCac!==null)?(cacNum<=metaCac?' q-meta-ok':' q-meta-mal'):'';
       const cac=inv===null?'':v.cierres?money(inv/v.cierres):'<span class="sin-retorno">sin cierres</span>';
       const conRes=v.pres+v.ns;
+      // Retorno = facturado menos lo invertido en ese canal. Es la pregunta de
+      // fondo: no cuanto sale traer un cliente, sino si deja plata.
+      const retorno=inv===null?null:v.fact-inv;
       const cols=hayInversion?`<td class="num">${inv===null?'—':money(inv)}</td>
         <td class="num">${inv===null?'—':money(inv/v.n)}</td>
-        <td class="num${clsCac}"><b>${inv===null?'—':cac}</b></td>`:'';
+        <td class="num${clsCac}"><b>${inv===null?'—':cac}</b></td>
+        <td class="num ${retorno===null?'':(retorno>=0?'q-meta-ok':'q-meta-mal')}"><b>${retorno===null?'—':money(retorno)}</b></td>`:'';
       return`<tr class="${cl}"><td>${esc(c)}</td><td class="num">${v.n}</td><td class="num">${v.ag}</td>
         <td class="num">${v.pres}</td><td class="num">${v.cierres}</td><td class="num"><b>${p}%</b></td>
-        <td class="num">${conRes?pct2(v.ns,conRes)+'%':'—'}</td>${cols}</tr>`;
+        <td class="num">${conRes?pct2(v.ns,conRes)+'%':'—'}</td>
+        <td class="num" ${v.cierres-v.conImp>0?`title="${v.cierres-v.conImp} de los ${v.cierres} cierres no tienen importe cargado: el facturado es un piso"`:''}>${v.fact?money(v.fact):'—'}${v.cierres-v.conImp>0?' <span class="parcial">+'+(v.cierres-v.conImp)+'</span>':''}</td>${cols}</tr>`;
     }).join('')}
     </tbody></table></div>
   </div>`;
@@ -1211,7 +1226,7 @@ function renderComparativaMensual(allLeads){
   allLeads.forEach(r=>{
     const d=parseDate(r['Fecha']);if(!d)return;
     const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
-    const e=map[k]=map[k]||{total:0,agendo:0,pres:0,ns:0,cierres:0,canal:{}};
+    const e=map[k]=map[k]||{total:0,agendo:0,pres:0,ns:0,cierres:0,fact:0,conImp:0,canal:{}};
     e.total++;
     if(r['¿Agendó?']==='Sí')e.agendo++;
     if(r['Estado del meeting']==='Asistió')e.pres++;
@@ -1219,7 +1234,7 @@ function renderComparativaMensual(allLeads){
     const c=r['Canal']||'Otro';
     const cc=e.canal[c]=e.canal[c]||{n:0,ce:0};
     cc.n++;
-    if(r['¿Cerró?']==='Sí'){e.cierres++;cc.ce++}
+    if(r['¿Cerró?']==='Sí'){e.cierres++;cc.ce++;const im=Number(r['Importe']);if(im){e.fact+=im;e.conImp++}}
   });
   // Solo los meses enteros que entran en la ventana: uno cortado a la mitad
   // mostraria una caida que no existe.
@@ -1242,10 +1257,10 @@ function renderComparativaMensual(allLeads){
   const filaMes=`<div class="chart-card">
     <div class="chart-title">Mes a mes, de punta a punta</div>
     <div class="chart-note">Los leads dados de alta en cada mes, seguidos hasta la compra. No depende del filtro de per&iacute;odo.
-      El costo por cliente sale de la inversi&oacute;n cargada a mano en ese mes.</div>
+      <b>Ojo con el retorno de esta tabla</b>: es lo facturado por <b>todos</b> los canales contra <b>toda</b> la pauta del mes, o sea la foto de la empresa. El retorno de cada canal por separado est&aacute; en el comparador de canales, y no da lo mismo. El facturado sale del importe del deal, cargado en el 83% de las aperturas: es un <b>piso</b>, y el <span class="parcial">+n</span> dice cu&aacute;ntos cierres quedaron sin precio.</div>
     <div class="table-scroll"><table class="comp-table"><thead><tr>
       <th>Mes</th><th class="num">Leads</th><th class="num">Agendaron</th><th class="num">%</th>
-      <th class="num">Se presentaron</th><th class="num">No-show</th><th class="num">Cerraron</th><th class="num">% cierre</th><th class="num">Costo x cliente</th>
+      <th class="num">Se presentaron</th><th class="num">No-show</th><th class="num">Cerraron</th><th class="num">% cierre</th><th class="num">Facturado</th><th class="num">Inversión</th><th class="num">Retorno</th>
     </tr></thead><tbody>
     ${keys.map(k=>{
       const v=map[k],p=pct2(v.cierres,v.total),inv=invMes(k);
@@ -1255,7 +1270,9 @@ function renderComparativaMensual(allLeads){
         <td class="num">${pct2(v.agendo,v.total)}%</td><td class="num">${v.pres}</td>
         <td class="num">${conRes?pct2(v.ns,conRes)+'%':'&mdash;'}</td>
         <td class="num">${v.cierres}</td><td class="num"><b>${p}%</b></td>
-        <td class="num">${inv&&v.cierres?money(inv/v.cierres):'&mdash;'}</td></tr>`;
+        <td class="num" ${v.cierres-v.conImp>0?`title="${v.cierres-v.conImp} cierres sin importe cargado: es un piso"`:''}>${v.fact?money(v.fact):'&mdash;'}${v.cierres-v.conImp>0?' <span class="parcial">+'+(v.cierres-v.conImp)+'</span>':''}</td>
+        <td class="num">${inv?money(inv):'&mdash;'}</td>
+        <td class="num ${inv?(v.fact-inv>=0?'q-meta-ok':'q-meta-mal'):''}"><b>${inv?money(v.fact-inv):'&mdash;'}</b></td></tr>`;
     }).join('')}
     </tbody></table></div>
   </div>`;

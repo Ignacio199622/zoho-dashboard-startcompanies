@@ -683,6 +683,7 @@ async function buildLeads(token) {
         // los deals ya están traídos.
         'Convertido': convertido ? 'Sí' : 'No',
         '¿Cerró?': 'No',
+        'Importe': '',
         'Próximo mensaje': proximoMensaje(l),
         // Estado del meeting salido de los Events del propio lead. El embudo lo
         // calculaba cruzando mails contra la vista de Seguimientos, que cubre otra
@@ -1013,7 +1014,11 @@ async function buildLLCs(token, deals, canalPorMail) {
         'Tipo de Origen': partner ? 'Partner' : (canal === SIN_DATO ? SIN_DATO : 'Directo'),
         'Partner': partner || '',
         'Vendedor': (d.Quien_lo_vendio && d.Quien_lo_vendio.name) || (d.Owner && d.Owner.name) || '',
-        'Confirmación de pago': pagoTexto(d)
+        'Confirmación de pago': pagoTexto(d),
+        // Está cargado en el 83% de las aperturas, no en todas: cualquier total
+        // que salga de acá es un PISO, y el panel tiene que decir la cobertura
+        // al lado o se lee como si fuera la facturación completa.
+        'Importe': (d.Amount === null || d.Amount === undefined || d.Amount === '') ? '' : Number(d.Amount)
       };
     })
     .filter(esRegistroReal)
@@ -1085,8 +1090,14 @@ function completarConversion(rows, raw, deals, contactos, evPorContacto) {
       }
     }
     const ds = dealsPorContacto[c.id] || [];
-    if (ds.some(d => (d.Type || '').toLowerCase().indexOf('apertura') === 0)) {
+    const apertura = ds.filter(d => (d.Type || '').toLowerCase().indexOf('apertura') === 0)[0];
+    if (apertura) {
       r['¿Cerró?'] = 'Sí';
+      // El importe viaja al lead para poder sumar facturación por canal, que es
+      // la pregunta que el costo por cliente solío dejar a medias: no alcanza
+      // con saber cuánto salió traerlo, hay que saber cuánto dejó.
+      r['Importe'] = (apertura.Amount === null || apertura.Amount === undefined || apertura.Amount === '')
+        ? '' : Number(apertura.Amount);
       cerrados++;
     }
   });
@@ -1117,7 +1128,7 @@ const CALIDAD_LEADS = [
 
 const DEAL_FIELDS = ['Created_Time', 'Deal_Name', 'Stage', 'Quien_lo_vendio', 'Landing_Origen',
   'Pago', 'Medios_de_pago', 'Producto', 'Estado_de_Registro', 'Fecha_de_constituci_n',
-  'Type', 'Account_Name', 'Contact_Name', 'Tel_fono', 'Owner', 'Partner'];
+  'Type', 'Account_Name', 'Contact_Name', 'Tel_fono', 'Owner', 'Partner', 'Amount'];
 
 const CALIDAD_DEALS = [
   { key: 'Quien_lo_vendio', label: '¿Quién lo vendió?' },
@@ -1291,6 +1302,14 @@ exports.handler = async (event) => {
       reuniones,
       // Serie propia del formulario de Meta, desde el piso del CRM.
       conversion,
+      // Cuánto del importe está realmente cargado: sin esto un total parcial se
+      // lee como la facturación completa.
+      facturacion: (() => {
+        const ap = deals.filter(d => (d.Type || '').toLowerCase().indexOf('apertura') === 0);
+        const con = ap.filter(d => d.Amount !== null && d.Amount !== undefined && d.Amount !== '');
+        return { aperturas: ap.length, conImporte: con.length,
+                 total: Math.round(con.reduce((a, d) => a + (Number(d.Amount) || 0), 0)) };
+      })(),
       formMeta: {
         desde: DESDE.pisoCRM,
         meses: buildSerieFormMeta(leadsFormulario, leadsData.events)
