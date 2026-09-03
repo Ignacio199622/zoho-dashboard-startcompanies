@@ -7,7 +7,17 @@ const BASE = 'https://api.fathom.ai/external/v1';
 
 async function get(path) {
   const r = await fetch(`${BASE}/${path}`, { headers: { 'X-Api-Key': env.FATHOM_API_KEY } });
-  if (!r.ok) throw new Error(`Fathom ${path}: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) {
+    const e = new Error(`Fathom ${path}: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
+    // Un 429 no se arregla reintentando a los 3 segundos: hay que esperar de
+    // verdad. Pasa cuando dos agentes piden lo mismo en la misma hora, o
+    // cuando alguien estuvo probando a mano.
+    if (r.status === 429) {
+      const cabecera = Number(r.headers.get('retry-after'));
+      e.reintentarEn = Number.isFinite(cabecera) && cabecera > 0 ? cabecera : 60;
+    }
+    throw e;
+  }
   return r.json();
 }
 

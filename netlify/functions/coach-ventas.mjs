@@ -9,10 +9,12 @@
  *
  * NO ESCRIBE EN ZOHO. Lee (para cruzar el lead y ver la ventana de WhatsApp) y
  * publica en Slack. Zoho se toca unicamente cuando un vendedor aprueba, y eso
- * pasa en slack-coach.mjs.
+ * pasa en slack-interactividad.mjs.
  *
- * Corre 10 minutos despues de la hora para no pisarse con agente-llamadas.mjs,
- * que corre en punto y usa las mismas cuotas de Fathom y Gemini.
+ * Corre a la media hora, no a los 10 minutos: agente-llamadas.mjs corre en
+ * punto y le pide a Fathom lo mismo. La primera corrida automatica (18:10 del
+ * 3-sep) murio con un 429 justamente por eso. Media hora de separacion mas el
+ * reintento largo del 429 alcanzan.
  */
 import { getStore } from '@netlify/blobs';
 import { reunionesRecientes, transcripcionATexto, mailDelCliente, duracionMin } from './lib/fathom.js';
@@ -92,7 +94,9 @@ export default async () => {
 
     const yaPublicadas = new Set((await store.get('coach-publicadas', { type: 'json' })) || []);
     const desde = Date.now() - DIAS_ATRAS * 24 * 3600e3;
-    const todas = await conReintento(() => reunionesRecientes(40), { etiqueta: 'Fathom' });
+    // 20 alcanza: son ~20 llamadas de venta por semana y la ventana es de 3 dias.
+    // Cada reunion viene con transcripcion completa, asi que pedir de mas cuesta.
+    const todas = await conReintento(() => reunionesRecientes(20), { etiqueta: 'Fathom' });
 
     const nuevas = todas
       .filter((m) => {
@@ -169,6 +173,5 @@ export default async () => {
   }
 };
 
-// A las y 10: agente-llamadas.mjs corre en punto y comparte las cuotas de
-// Fathom y de Gemini.
-export const config = { schedule: '10 * * * *' };
+// A y media. Ver la nota de arriba sobre el 429.
+export const config = { schedule: '30 * * * *' };
