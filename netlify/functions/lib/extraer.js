@@ -3,7 +3,6 @@
 //
 // Usa structured outputs, asi que la respuesta siempre valida contra el
 // esquema y no hay que parsear texto libre ni manejar JSON roto.
-import Anthropic from '@anthropic-ai/sdk';
 import { env } from './fathom.js';
 import { generar as generarGemini } from './gemini.js';
 import { PROVEEDOR, MODELO_ANTHROPIC, MODELO_GEMINI, MAX_CARACTERES_TRANSCRIPCION } from './config.js';
@@ -92,6 +91,10 @@ export async function analizarLlamada({ titulo, fecha, duracionMin, transcripcio
     });
   }
 
+  // El SDK se carga solo si de verdad se va a usar Anthropic. Importado arriba
+  // rompia el empaquetado de Netlify: `@anthropic-ai/sdk` no esta en las
+  // dependencias del sitio, y con PROVEEDOR='gemini' no hace falta.
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const cliente = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const respuesta = await cliente.messages.create({
     model: MODELO_ANTHROPIC,

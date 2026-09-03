@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 function delArchivo() {
-  // En Netlify no hay .env: todo viene por variables del sitio. Esto queda
-  // por si alguien corre estas funciones localmente.
+  // En Netlify no hay .env: todo viene por variables del sitio, y esta funcion
+  // devuelve {} sin drama. El archivo es el camino de la maquina.
   try {
     const raiz = join(dirname(fileURLToPath(import.meta.url)), '..');
     const ruta = join(raiz, '.env');

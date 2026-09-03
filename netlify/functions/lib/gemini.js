@@ -32,21 +32,28 @@ export function apiKey() {
  */
 export function aEsquemaGemini(esquemaJsonSchema) {
   const conv = (n) => {
-    if (Array.isArray(n.type)) {
-      const tipos = n.type.filter((t) => t !== 'null');
-      return { type: tipos[0].toUpperCase(), nullable: n.type.includes('null'), description: n.description };
-    }
-    if (n.type === 'object') {
-      return {
+    // `type: ['object', 'null']` se resuelve sacando el null y convirtiendo el
+    // tipo que queda. Antes esta rama cortaba antes que las de object y array,
+    // asi que un objeto opcional perdia sus `properties` y un enum opcional
+    // perdia sus valores: Gemini recibia un OBJECT vacio y contestaba null
+    // siempre. Le pasaba a `mensaje` del coach y a `estructura` del extractor.
+    const nulo = Array.isArray(n.type) && n.type.includes('null');
+    const tipo = Array.isArray(n.type) ? n.type.find((t) => t !== 'null') : n.type;
+    const marca = (x) => (nulo ? { ...x, nullable: true } : x);
+
+    if (tipo === 'object') {
+      return marca({
         type: 'OBJECT',
+        description: n.description,
         properties: Object.fromEntries(Object.entries(n.properties || {}).map(([k, v]) => [k, conv(v)])),
         required: n.required || [],
-      };
+      });
     }
-    if (n.type === 'array') return { type: 'ARRAY', items: conv(n.items), description: n.description };
-    const base = { type: String(n.type).toUpperCase(), description: n.description };
+    if (tipo === 'array') return marca({ type: 'ARRAY', items: conv(n.items), description: n.description });
+
+    const base = { type: String(tipo).toUpperCase(), description: n.description };
     if (n.enum) base.enum = n.enum.filter((e) => e !== null);
-    return base;
+    return marca(base);
   };
   return conv(esquemaJsonSchema);
 }
