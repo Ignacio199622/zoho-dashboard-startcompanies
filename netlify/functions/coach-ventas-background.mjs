@@ -30,6 +30,7 @@ import { coachearLlamada } from './lib/coach.js';
 import { mapaDeConversaciones, estadoVentana } from './lib/ventana.js';
 import { telefonoDelLead } from './lib/telefono.js';
 import { resolverVendedor } from './lib/vendedor.js';
+import { buscarFicha } from './lib/ficha.js';
 import { tokenZoho } from './lib/aprobacion.js';
 import { publicar, HAY_SLACK, CANAL } from './lib/slack.js';
 import { crear, actualizar } from './lib/casos.js';
@@ -42,8 +43,6 @@ import { conReintento, dormir } from './lib/reintentar.js';
 const MAX_POR_CORRIDA = 3;
 const DIAS_ATRAS = 3;
 const MAX_BITACORA = 60;
-
-const CAMPOS = 'id,Full_Name,Email,Phone,Mobile,Lead_Status,Description,Owner,Retargeting,Nombre_retargeting,Quien_lo_vendio';
 
 export default async () => {
   const store = getStore({ name: 'agente-llamadas', consistency: 'strong' });
@@ -151,12 +150,10 @@ export default async () => {
           { etiqueta: 'analisis' }
         );
 
-        let lead = null;
-        if (mail) {
-          const j = await zoho(`Leads/search?criteria=(Email:equals:${encodeURIComponent(mail)})&fields=${CAMPOS}`);
-          lead = (j.data || [])[0] || null;
-        }
-        if (!lead) avisos.push(`sin lead en Zoho: ${mail || titulo.slice(0, 30)}`);
+        // Posibles clientes y, si no esta, Contactos: una venta que cierra en
+        // la llamada ya fue convertida y en Leads no aparece mas.
+        const lead = await buscarFicha(mail, token);
+        if (!lead) avisos.push(`sin ficha en Zoho: ${mail || titulo.slice(0, 30)}`);
 
         const telefono = telefonoDelLead(lead);
         const ventana = estadoVentana(mapaWA, telefono);

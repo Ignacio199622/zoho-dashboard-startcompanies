@@ -15,6 +15,7 @@
 //     se congela en el 3; meter gente ahi automaticamente es empeorarlo. El
 //     coach recomienda, la persona decide.
 import { env } from './entorno.js';
+import { vinculoDeTarea } from './ficha.js';
 
 const API = 'https://www.zohoapis.com/crm/v6';
 
@@ -90,8 +91,8 @@ async function apagarEscrituraDeVendedor(motivo) {
 }
 
 /** Mensajes que el CRM le mando al cliente despues de un momento dado. */
-async function huboEnvios(leadId, desde, token) {
-  const j = await zoho(`Leads/${leadId}/__timeline?per_page=25`, {}, token);
+async function huboEnvios(modulo, leadId, desde, token) {
+  const j = await zoho(`${modulo}/${leadId}/__timeline?per_page=25`, {}, token);
   return (j.__timeline || []).filter((t) => {
     if (new Date(t.audited_time).getTime() < desde) return false;
     return /messagenotificationsent|email_notification|notification/i.test(t.action || '');
@@ -109,8 +110,10 @@ async function huboEnvios(leadId, desde, token) {
 export async function registrarAprobacion({ caso, texto, quien }) {
   const t = await tokenZoho();
   const s = caso.coach?.seguimiento || {};
-  const leadId = caso.lead?.id;
-  if (!leadId) throw new Error('el caso no tiene lead de Zoho');
+  const ficha = caso.lead; // Lead o Contacto: trae `modulo`
+  const leadId = ficha?.id;
+  const modulo = ficha?.modulo || 'Leads';
+  if (!leadId) throw new Error('el caso no tiene ficha en Zoho');
 
   // --- 1. La nota con el mensaje aprobado -------------------------------
   const cuerpoNota = [
@@ -139,7 +142,7 @@ export async function registrarAprobacion({ caso, texto, quien }) {
           {
             Note_Title: 'Mensaje post-llamada aprobado',
             Note_Content: cuerpoNota.slice(0, 32000),
-            Parent_Id: { module: { api_name: 'Leads' }, id: leadId },
+            Parent_Id: { module: { api_name: modulo }, id: leadId },
           },
         ],
       }),
@@ -161,8 +164,7 @@ export async function registrarAprobacion({ caso, texto, quien }) {
       Status: 'Not Started',
       Priority: s.dias <= 0 ? 'High' : 'Normal',
       Due_Date: fechaEn(s.dias),
-      What_Id: leadId,
-      $se_module: 'Leads',
+      ...vinculoDeTarea(ficha),
       Description: [
         `Via: ${ETIQUETA_VIA[s.via] || s.via}`,
         s.motivo ? `Motivo: ${s.motivo}` : null,
@@ -216,7 +218,7 @@ export async function registrarAprobacion({ caso, texto, quien }) {
     const t0 = Date.now();
     try {
       const ju = await zoho(
-        'Leads',
+        modulo,
         { method: 'PUT', body: JSON.stringify({ data: [{ id: leadId, Owner: { id: v.id } }] }) },
         t
       );
@@ -224,10 +226,10 @@ export async function registrarAprobacion({ caso, texto, quien }) {
       if (ru?.code !== 'SUCCESS') throw new Error(`${ru?.code} ${ru?.message}`);
       vendedor = { escrito: true, id: v.id, nombre: v.nombre, motivo: v.motivo };
 
-      const envios = await huboEnvios(leadId, t0 - 5000, t);
+      const envios = await huboEnvios(modulo, leadId, t0 - 5000, t);
       if (envios.length) {
         await apagarEscrituraDeVendedor(
-          `editar el lead ${leadId} disparo ${envios.length} envio(s) al cliente`
+          `editar ${modulo}/${leadId} disparo ${envios.length} envio(s) al cliente`
         );
         vendedor.alerta = `⚠️ editar el lead disparó ${envios.length} mensaje(s) al cliente. Se apagó la escritura de vendedor.`;
       }

@@ -78,7 +78,7 @@ export function armarTarjeta(caso, { estado = 'pendiente', quien = null } = {}) 
 
   const links = [
     llamada?.url ? `<${llamada.url}|ver la grabación>` : null,
-    lead?.id ? `<${ZOHO_UI}/Leads/${lead.id}|abrir en Zoho>` : null,
+    lead?.id ? `<${ZOHO_UI}/${lead.modulo || 'Leads'}/${lead.id}|abrir en Zoho${lead.modulo === 'Contacts' ? ' (ya es cliente)' : ''}>` : null,
   ].filter(Boolean);
   if (links.length) b.push({ type: 'context', elements: [{ type: 'mrkdwn', text: links.join(' · ') }] });
 
@@ -187,7 +187,7 @@ export function armarTarjeta(caso, { estado = 'pendiente', quien = null } = {}) 
       // lo mismo: por Zoho sale desde el numero de la empresa y queda en el
       // hilo del cliente; por wa.me sale desde el telefono del vendedor.
       const link = linkWhatsApp(caso.telefono, texto);
-      const enZoho = lead?.id ? `<${ZOHO_UI}/Leads/${lead.id}|💬 Mandarlo desde Zoho (número de la empresa)>` : null;
+      const enZoho = lead?.id ? `<${ZOHO_UI}/${lead.modulo || 'Leads'}/${lead.id}|💬 Mandarlo desde Zoho (número de la empresa)>` : null;
       const w = caso.zoho?.vendedor;
       const lineaVendedor = w?.escrito
         ? ` y quedó ${w.nombre} como vendedor.`
