@@ -57,8 +57,19 @@ export function armarTarjeta(caso, { estado = 'pendiente', quien = null } = {}) 
     text: { type: 'plain_text', text: `📞 ${corta(nombre, 100)}`, emoji: true },
   });
 
+  // El vendedor sale como la persona de Zoho, no como el nombre suelto que
+  // dijo la transcripcion. Fathom no ayuda: todas las llamadas se graban con
+  // una cuenta generica, y el dueno del lead es "Start Companies Staff" en el
+  // 68% de los casos. El unico origen es lo que se dijo en la llamada.
+  const v = caso.vendedor || {};
+  const vendedorTexto = v.id
+    ? v.nombre
+    : v.detectado
+      ? `${v.detectado} ⚠️ ${v.motivo}`
+      : 'no identificado';
+
   const meta = [
-    analisis?.vendedor ? `*Vendedor:* ${analisis.vendedor}` : '*Vendedor:* no identificado',
+    `*Vendedor:* ${vendedorTexto}`,
     `*Resultado:* ${(analisis?.resultado || '?').replace(/_/g, ' ')}`,
     `*Interés:* ${analisis?.nivel_de_interes || '?'}`,
     llamada?.minutos ? `*Duración:* ${llamada.minutos} min` : null,
@@ -96,7 +107,7 @@ export function armarTarjeta(caso, { estado = 'pendiente', quien = null } = {}) 
 
   // --- Seguimiento ------------------------------------------------------
   b.push({ type: 'divider' });
-  const v = VIA[coach.seguimiento?.via] || VIA.ninguno;
+  const via = VIA[coach.seguimiento?.via] || VIA.ninguno;
   b.push(
     seccion(
       `*${v.emoji} Seguimiento sugerido: ${v.texto}*\n` +
@@ -177,14 +188,21 @@ export function armarTarjeta(caso, { estado = 'pendiente', quien = null } = {}) 
       // hilo del cliente; por wa.me sale desde el telefono del vendedor.
       const link = linkWhatsApp(caso.telefono, texto);
       const enZoho = lead?.id ? `<${ZOHO_UI}/Leads/${lead.id}|💬 Mandarlo desde Zoho (número de la empresa)>` : null;
+      const w = caso.zoho?.vendedor;
+      const lineaVendedor = w?.escrito
+        ? ` y quedó ${w.nombre} como vendedor.`
+        : w?.motivo
+          ? ` El vendedor no se cargó: ${w.motivo}.`
+          : '';
       b.push(
         seccion(
-          `*✅ Aprobado${quien ? ` por <@${quien}>` : ''}* · quedó la nota y la tarea de seguimiento en Zoho.\n\n` +
+          `*✅ Aprobado${quien ? ` por <@${quien}>` : ''}* · quedó la nota y la tarea de seguimiento en Zoho${lineaVendedor}\n\n` +
             [enZoho, link ? `<${link}|📲 Abrirlo en tu WhatsApp con el texto ya escrito>` : null]
               .filter(Boolean)
               .join('\n') || '_El lead no tiene teléfono cargado._'
         )
       );
+      if (w?.alerta) b.push(seccion(w.alerta));
     } else if (estado === 'descartado') {
       b.push(seccion(`*✖️ Descartado${quien ? ` por <@${quien}>` : ''}.* No se escribió nada en Zoho.`));
     }
@@ -193,7 +211,7 @@ export function armarTarjeta(caso, { estado = 'pendiente', quien = null } = {}) 
     b.push(seccion('*✍️ Mensaje post-llamada:* no corresponde mandar nada en esta llamada.'));
   }
 
-  const resumen = `${nombre} · ${(analisis?.resultado || '').replace(/_/g, ' ')} · ${v.texto}`;
+  const resumen = `${nombre} · ${(analisis?.resultado || '').replace(/_/g, ' ')} · ${via.texto}`;
   return { text: `📞 Coach de Ventas: ${corta(resumen, 150)}`, blocks: b };
 }
 

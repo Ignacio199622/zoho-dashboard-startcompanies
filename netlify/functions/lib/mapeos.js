@@ -17,13 +17,26 @@
 // seguimiento, pero nunca son el vendedor de un Deal. Daniel Alvarado es un
 // externo que esta probando cosas y Adrian entro por operaciones/Zoho.
 export const USUARIOS = {
-  '6698625000041418001': { nombre: 'Santiago Cuellar', mail: 'santiago@startcompanies.io', vende: true },
+  '6698625000041418001': { nombre: 'Santiago Cuellar', mail: 'santiago@startcompanies.net', vende: true },
   '6698625000002192001': { nombre: 'Ignacio Navarro', mail: 'ignacio@startcompanies.net', vende: true },
   '6698625000048708001': { nombre: 'Camila Salazar', mail: 'camila@startcompanies.io', vende: false, area: 'filing' },
   '6698625000002191001': { nombre: 'Ignacio Campo', mail: 'ignaciocampo@startcompanies.net', vende: false, area: 'filing' },
   '6698625000023935001': { nombre: 'Daniel Alvarado', mail: 'dany@thepauta.com', vende: false },
   '6698625000050962001': { nombre: 'Adrián Darío Calabró', mail: 'calabroadrian@gmail.com', vende: false },
   '6698625000000502001': { nombre: 'Start Companies Staff', mail: 'administracion@startcompanies.net', generico: true },
+
+  // Altas nuevas, leidas de /users el 2026-09-03. La lista anterior era del
+  // 11-ago y no las tenia, asi que sus llamadas quedaban sin vendedor.
+  //
+  // OJO: los tres entran con `vende: false` A PROPOSITO. Que alguien atienda
+  // llamadas no prueba que sea el vendedor del Deal (Camila e Ignacio Campo
+  // aparecen en llamadas y hacen filing). Mientras Ignacio no lo confirme,
+  // preferimos una llamada sin vendedor que una venta atribuida a la persona
+  // equivocada: el dato mal cargado es peor que el dato faltante, porque
+  // nadie lo vuelve a revisar. Para activarlos: poner vende: true.
+  '6698625000055942001': { nombre: 'Bautista Brito', mail: 'bautista@startcompanies.net', vende: false, confirmar: true },
+  '6698625000056211001': { nombre: 'Pablo Gijon', mail: 'pablo@startcompanies.net', vende: false, confirmar: true },
+  '6698625000056325001': { nombre: 'Guadalupe Ramirez', mail: 'guadalupe@startcompanies.net', vende: false, confirmar: true },
 };
 
 // Ya no hay ambiguedad entre los dos Ignacios: Campo hace filing y no vende,
@@ -83,7 +96,19 @@ export function usuarioDesdeNombre(nombreEnLlamada) {
 }
 
 // --- Estado de la reunion (Status_del_Meet) ---
-// Valores validos del picklist: Asistió / No asistió / Reagendar / Asistió sin interés
+// Valores validos del picklist: Asistió / No asistió / Reagendar / Asistió sin interes
+//
+// DOS TRAMPAS DE ESTE CAMPO, verificadas contra Zoho el 2026-09-03:
+//
+// 1. El picklist tiene valores internos distintos de los visibles: "Asistió"
+//    guarda internamente "Option 1" y "No asistió" guarda "Option 2" (alguien
+//    renombro las etiquetas y dejo los valores por defecto). Se probo por
+//    busqueda cual entiende la API: usa los VISIBLES. Buscar por "Option 1"
+//    no devuelve nada, buscar por "Asistió" devuelve 653 reuniones.
+//
+// 2. "Asistió sin interes" va SIN TILDE en la "e" final. Asi esta cargado en
+//    Zoho. La version con tilde no matchea ningun registro y la escritura
+//    fallaria. Antes este archivo decia "Asistió sin interés" (con tilde).
 //
 // OJO: que exista grabacion NO prueba que el cliente vino. Fathom graba en
 // cuanto el vendedor entra a la reunion, asi que hay grabaciones enteras del
@@ -97,7 +122,7 @@ export function estadoDelMeet(resultado, hayGrabacion, sePresento) {
   if (sePresento !== true) {
     return { valor: null, motivo: 'la llamada no permite afirmar si el cliente se presento' };
   }
-  if (resultado === 'no_calificado') return { valor: 'Asistió sin interés', motivo: 'vino, pero no califica' };
+  if (resultado === 'no_calificado') return { valor: 'Asistió sin interes', motivo: 'vino, pero no califica' };
   return { valor: 'Asistió', motivo: 'la llamada confirma que el cliente participo' };
 }
 
