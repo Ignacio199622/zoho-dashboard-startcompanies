@@ -50,12 +50,26 @@ export function transcripcionATexto(reunion) {
     .join('\n');
 }
 
-/** El mail del invitado externo, que es la clave para encontrarlo en Zoho. */
+/** El mail del invitado externo, que es una de las dos claves para cruzar con Zoho.
+ *
+ * BUG CORREGIDO (2026-09-03): antes filtraba los internos con la regex
+ * /@startcompanies\.(io|us)$/, que NO incluye startcompanies.NET, que es el
+ * dominio de la mayoria del equipo en Zoho (ignacio@, santiago@, bautista@).
+ * Consecuencia: en las reuniones donde participaba alguien de .net, esta
+ * funcion podia devolver el mail del VENDEDOR como si fuera el del cliente.
+ * Ahora manda `is_external`, que lo decide Fathom con el calendario y no
+ * depende de que la lista de dominios este al dia. La regex queda solo de
+ * respaldo para invitados viejos sin ese campo.
+ */
+const DOMINIOS_INTERNOS = /@startcompanies\.(io|us|net)$/i;
+
 export function mailDelCliente(reunion) {
-  const internos = /@startcompanies\.(io|us)$/i;
-  const externos = (reunion.calendar_invitees || []).filter(
-    (i) => i.email && !internos.test(i.email)
-  );
+  const inv = reunion.calendar_invitees || [];
+  const externos = inv.filter((i) => {
+    if (!i.email) return false;
+    if (typeof i.is_external === 'boolean') return i.is_external;
+    return !DOMINIOS_INTERNOS.test(i.email);
+  });
   return externos[0]?.email || null;
 }
 
