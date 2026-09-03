@@ -23,33 +23,63 @@ function claveMaestra() {
   return crypto.createHash('sha256').update('sc-dashboard:' + base).digest();
 }
 
-function firmar(exp) {
-  return crypto.createHmac('sha256', claveMaestra()).update(String(exp)).digest('hex');
+// Dos niveles. "direccion" ve todo; "equipo" ve lo que no es plata: biblioteca,
+// decisiones, guias y el pulso de tareas. El rol va DENTRO de la firma, asi que
+// no se puede editar el token para ascender de nivel.
+const NIVEL = { equipo: 1, direccion: 2 };
+
+function firmar(exp, rol) {
+  return crypto.createHmac('sha256', claveMaestra()).update(exp + ':' + rol).digest('hex');
 }
 
-function emitirToken() {
+function emitirToken(rol = 'direccion') {
   const exp = Date.now() + TTL_MS;
-  return exp + '.' + firmar(exp);
+  return exp + '.' + rol + '.' + firmar(exp, rol);
+}
+
+/**
+ * Devuelve { exp, rol } o null. Acepta el formato viejo de dos partes
+ * (`exp.firma`) como direccion: si no, al deployar esto se caeria la sesion de
+ * todos los que ya estaban adentro.
+ */
+function datosToken(token) {
+  if (!token || !claveMaestra()) return null;
+  const partes = String(token).split('.');
+  const rol = partes.length === 3 ? partes[1] : 'direccion';
+  if (partes.length < 2 || partes.length > 3 || !NIVEL[rol]) return null;
+  const exp = Number(partes[0]);
+  if (!exp || Number.isNaN(exp) || Date.now() > exp) return null;
+  const esperada = Buffer.from(
+    partes.length === 3
+      ? firmar(exp, rol)
+      : crypto.createHmac('sha256', claveMaestra()).update(String(exp)).digest('hex')
+  );
+  const recibida = Buffer.from(String(partes[partes.length - 1]));
+  if (esperada.length !== recibida.length || !crypto.timingSafeEqual(esperada, recibida)) return null;
+  return { exp, rol };
 }
 
 function tokenValido(token) {
-  if (!token || !claveMaestra()) return false;
-  const partes = String(token).split('.');
-  if (partes.length !== 2) return false;
-  const exp = Number(partes[0]);
-  if (!exp || Number.isNaN(exp) || Date.now() > exp) return false;
-  const esperada = Buffer.from(firmar(exp));
-  const recibida = Buffer.from(String(partes[1]));
-  return esperada.length === recibida.length && crypto.timingSafeEqual(esperada, recibida);
+  return Boolean(datosToken(token));
 }
 
 // Hash both sides first so the comparison is constant time regardless of length.
-function claveCorrecta(intento) {
-  const real = process.env.DASHBOARD_PASSWORD;
+function coincide(intento, real) {
   if (!real || typeof intento !== 'string') return false;
   const a = crypto.createHash('sha256').update(intento).digest();
   const b = crypto.createHash('sha256').update(real).digest();
   return crypto.timingSafeEqual(a, b);
+}
+
+/** Que rol abre esta clave: la de direccion, la del equipo, o ninguna. */
+function rolDeClave(intento) {
+  if (coincide(intento, process.env.DASHBOARD_PASSWORD)) return 'direccion';
+  if (coincide(intento, process.env.EQUIPO_PASSWORD)) return 'equipo';
+  return null;
+}
+
+function claveCorrecta(intento) {
+  return rolDeClave(intento) !== null;
 }
 
 function leerBearer(headers) {
@@ -73,16 +103,21 @@ function cabeceras(headers) {
 }
 
 // Returns a ready-to-send error response, or null when the request may proceed.
-function exigirAuth(headers, cabecerasRespuesta) {
+function exigirAuth(headers, cabecerasRespuesta, rolMinimo = 'equipo') {
   if (!claveMaestra()) {
     return { statusCode: 503, headers: cabecerasRespuesta,
       body: JSON.stringify({ error: 'Falta configurar DASHBOARD_PASSWORD en Netlify' }) };
   }
-  if (!tokenValido(leerBearer(headers))) {
+  const datos = datosToken(leerBearer(headers));
+  if (!datos) {
     return { statusCode: 401, headers: cabecerasRespuesta,
       body: JSON.stringify({ error: 'No autorizado' }) };
+  }
+  if (NIVEL[datos.rol] < NIVEL[rolMinimo]) {
+    return { statusCode: 403, headers: cabecerasRespuesta,
+      body: JSON.stringify({ error: 'Esta sección es solo para dirección' }) };
   }
   return null;
 }
 
-module.exports = { TTL_MS, emitirToken, tokenValido, claveCorrecta, claveMaestra, leerBearer, cabeceras, exigirAuth };
+module.exports = { TTL_MS, NIVEL, emitirToken, tokenValido, datosToken, claveCorrecta, rolDeClave, claveMaestra, leerBearer, cabeceras, exigirAuth };

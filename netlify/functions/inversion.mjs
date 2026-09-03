@@ -46,7 +46,7 @@ export default async (req) => {
 
   if (req.method === 'OPTIONS') return new Response('', { status: 200, headers: resp });
 
-  const rechazo = exigirAuth(headers, resp);
+  const rechazo = exigirAuth(headers, resp, 'direccion');
   if (rechazo) return json(JSON.parse(rechazo.body), rechazo.statusCode, resp);
 
   // Lectura consistente: por defecto Blobs tarda unos segundos en devolver lo

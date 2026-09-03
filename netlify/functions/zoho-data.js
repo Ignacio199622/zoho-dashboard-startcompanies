@@ -1388,7 +1388,7 @@ exports.handler = async (event) => {
 
   // This payload carries names, emails and phones of every lead: it does not
   // leave the function without a valid token.
-  const rechazo = exigirAuth(event.headers, headers);
+  const rechazo = exigirAuth(event.headers, headers, 'direccion');
   if (rechazo) return rechazo;
 
   try {
