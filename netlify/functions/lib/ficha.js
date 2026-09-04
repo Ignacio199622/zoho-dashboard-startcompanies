@@ -14,11 +14,19 @@
 // consulta.
 const API = 'https://www.zohoapis.com/crm/v6';
 
+// Los campos de atribucion se leen SI O SI. Quien vaya a completarlos tiene
+// que ver primero lo que ya hay: sin eso creeria que estan vacios y pisaria el
+// dato que la ficha ya tenia. Es lo unico que sostiene la promesa de "nunca
+// toco un campo con valor".
 const CAMPOS_LEAD =
-  'id,Full_Name,Email,Phone,Mobile,Lead_Status,Description,Owner,Retargeting,Nombre_retargeting';
+  'id,Full_Name,Email,Phone,Mobile,Lead_Status,Description,Owner,Retargeting,Nombre_retargeting,'
+  + 'Landing_Origen,Lead_Source,fbclid,fbc,leadchain0__Social_Lead_ID,'
+  + 'utm_campaign,utm_content,utm_source,utm_medium,utm_term,utm_id';
 // Contactos NO tiene Lead_Status ni los campos de la cadencia: son de Leads.
 // Pedirlos igual devuelve un error de campo invalido, no un campo vacio.
-const CAMPOS_CONTACTO = 'id,Full_Name,Email,Phone,Mobile,Description,Owner';
+// Contactos no tiene los utm_*: pedirlos rompe la consulta entera.
+const CAMPOS_CONTACTO =
+  'id,Full_Name,Email,Phone,Mobile,Description,Owner,Landing_Origen,fbclid,fbc,leadchain0__Social_Lead_ID';
 
 /**
  * @returns {Promise<null | {modulo:'Leads'|'Contacts', ...campos}>}
