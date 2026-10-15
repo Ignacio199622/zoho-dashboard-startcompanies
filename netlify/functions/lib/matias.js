@@ -202,17 +202,19 @@ export async function mandar(numero, cuerpo, { linea = null, humano = false } = 
   return j.messages?.[0]?.id || null;
 }
 
-/** Plantilla con parámetros de texto en el cuerpo, en español. */
+// Las gemelas de Brasil ("<nombre>_pt", 14-oct-2026) se crean en Meta en pt_BR; el resto sigue en 'es'.
+const idiomaPlantilla = (nombre) => (String(nombre || '').endsWith('_pt') ? 'pt_BR' : 'es');
+/** Plantilla con parámetros de texto en el cuerpo, en español (o pt_BR si es gemela _pt). */
 export const plantilla = (nombre, parametros) => ({
   type: 'template',
-  template: { name: nombre, language: { code: 'es' }, components: [{ type: 'body', parameters: parametros.map((text) => ({ type: 'text', text })) }] },
+  template: { name: nombre, language: { code: idiomaPlantilla(nombre) }, components: [{ type: 'body', parameters: parametros.map((text) => ({ type: 'text', text })) }] },
 });
 /** Plantilla con un video en el encabezado (pre-llamada, 12-oct-2026). */
 export const plantillaVideo = (nombre, video, parametros) => ({
   type: 'template',
   template: {
     name: nombre,
-    language: { code: 'es' },
+    language: { code: idiomaPlantilla(nombre) },
     components: [
       { type: 'header', parameters: [{ type: 'video', video: { link: video } }] },
       { type: 'body', parameters: parametros.map((text) => ({ type: 'text', text })) },
