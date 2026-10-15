@@ -36,6 +36,9 @@ import {
 export const LISTA_BLANCA = new Set([
   'baja',
   'no me interesa',
+  // Brasil (14-oct-2026): el boton de las plantillas en portugues manda "Não tenho
+  // interesse" (normalizado sin tilde: "nao tenho interesse"). Mismo carril.
+  'nao tenho interesse',
 ]);
 
 /** minusculas, sin tildes, sin puntuacion ni emojis, espacios colapsados. */
