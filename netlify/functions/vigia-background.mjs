@@ -3,13 +3,16 @@
  * usuarios, quejas y dudas repetidas, mejoras sugeridas y CRM trabado.
  * Ver lib/vigia/README.md.
  *
- * SOLO LECTURA: no escribe en Zoho ni le manda nada a nadie salvo el mensaje
- * al canal. Por corrida: 1 llamada a Zoho (messages__s con If-Modified-Since,
+ * SOLO LECTURA: no escribe en Zoho ni le manda nada a nadie salvo el informe
+ * por DM a Ignacio (VIGIA_DIARIO_A, default U0869LQ3G4C). Por corrida: 1 llamada a Zoho (messages__s con If-Modified-Since,
  * con el token compartido del store `zoho-token`), 1 a Gemini, y la bitacora
  * de Control CRM leida del store `control-crm`.
  *
- * Sin SLACK_WEBHOOK_VIGIA corre en MODO SOMBRA: arma el informe, lo guarda en
- * el store `vigia` (clave `ultimo-informe`) y no lo manda.
+ * Envio: chat.postMessage con el bot token (SLACK_BOT_TOKEN_VIGIA o
+ * SLACK_BOT_TOKEN) y channel=<ID de usuario>. Si ademas esta cargado
+ * SLACK_WEBHOOK_VIGIA, sale tambien a ese canal. Sin token ni webhook corre en
+ * MODO SOMBRA: arma el informe, lo guarda en el store `vigia` (clave
+ * `ultimo-informe`) y no lo manda.
  *
  * `?seco=1` (o {"seco":true}) arma el informe sin mandarlo y sin mover la
  * marca de "hasta donde se leyo".
@@ -20,6 +23,7 @@
 import { getStore } from '@netlify/blobs';
 import { get as zohoGet } from './lib/conversaciones/zoho.js';
 import { juntar, texto, fotoDelDia } from './lib/vigia/informe.js';
+import { diarioA, hayToken, mandarDm } from './lib/vigia/dm.js';
 import { avisarFalla } from './lib/aviso-falla.js';
 
 const CANDADO_MIN = 20;
@@ -63,19 +67,30 @@ export default async (req) => {
     const r = await juntar({ ahora, desde, get: zohoGet, bitacoraCrm, crmInformado: marca?.crmInformado });
     const mensaje = texto(r);
 
+    // Va por DM a Ignacio (VIGIA_DIARIO_A) con el bot token. Si ademas hay
+    // SLACK_WEBHOOK_VIGIA cargado, sale tambien a ese canal.
     const webhook = process.env.SLACK_WEBHOOK_VIGIA;
     let enviado = false;
     let detalle = null;
     if (seco) detalle = 'seco: no se envio';
-    else if (!webhook) detalle = 'MODO SOMBRA: falta SLACK_WEBHOOK_VIGIA';
+    else if (!hayToken() && !webhook) detalle = 'MODO SOMBRA: falta SLACK_BOT_TOKEN (o SLACK_WEBHOOK_VIGIA)';
     else {
-      const s = await fetch(webhook, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: mensaje }),
-      });
-      enviado = s.ok;
-      if (!s.ok) throw new Error(`Slack respondio ${s.status}: ${(await s.text()).slice(0, 200)}`);
+      const hechos = [];
+      if (hayToken()) {
+        await mandarDm(diarioA(), mensaje);
+        hechos.push(`DM a ${diarioA()}`);
+      }
+      if (webhook) {
+        const s = await fetch(webhook, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: mensaje }),
+        });
+        if (!s.ok) throw new Error(`Slack respondio ${s.status}: ${(await s.text()).slice(0, 200)}`);
+        hechos.push('webhook');
+      }
+      enviado = true;
+      detalle = hechos.join(' + ');
     }
 
     await store.setJSON(seco ? 'ultimo-informe-seco' : 'ultimo-informe', { fecha: ahora.toISOString(), texto: mensaje });

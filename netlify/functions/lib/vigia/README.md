@@ -1,6 +1,6 @@
 # Vigía
 
-Un informe a Slack a las 9:00 y a las 18:00 de Argentina (cron `0 12,21 * * *` UTC, todos los días). Un solo mensaje por corrida:
+Un informe por DM de Slack a Ignacio (`VIGIA_DIARIO_A`, default `U0869LQ3G4C`) a las 9:00 y a las 18:00 de Argentina (cron `0 12,21 * * *` UTC, todos los días). Un solo mensaje por corrida:
 
 - 🔴 **Errores de usuarios**: errores del panel y pagos/firmas trabados (apagado hasta tener la clave de Benja) + lo que los clientes reportan como error por WhatsApp.
 - 🟡 **Quejas y dudas repetidas**: WhatsApp del 786 agrupado con Gemini (solo lo que plantean 2 o más) + cuántos esperan respuesta hace más de 2 h.
@@ -17,14 +17,14 @@ Contenido: lo que más se repitió en 7 días (quejas, dudas, errores; cuántas 
 
 **Cero llamadas a Zoho**: cada corrida diaria guarda su foto en el store `vigia` (`corrida/<ISO>`, 21 días) y el semanal se arma con eso + la bitácora de Control CRM. Gemini solo junta temas parecidos y propone mejoras; las cuentas se suman en el código. El texto se arma una vez por lunes (`semanal/<fecha>`) y el segundo envío lo reusa. Los responsables posibles para "quién" están en `semanal.js` (se pisan con `VIGIA_RESPONSABLES`).
 
-Envío: los webhooks no mandan DMs, así que usa `SLACK_BOT_TOKEN_VIGIA` (xoxb con `chat:write` + `im:write`): `conversations.open` + `chat.postMessage`. Sin el token, modo sombra (arma y guarda, no manda).
+Envío (diario y semanal): los webhooks no mandan DMs, así que usa el bot token (`SLACK_BOT_TOKEN_VIGIA` o, si no está, el `SLACK_BOT_TOKEN` que ya existe). Con `chat:write` alcanza: `chat.postMessage` con `channel=<ID de usuario>` cae en el DM de la app, sin `conversations.open` ni `im:write`. Sin token, modo sombra (arma y guarda, no manda).
 
 ## Archivos
 
 | Archivo | Qué hace |
 |---|---|
 | `netlify/functions/vigia.mjs` | el reloj, dispara la background |
-| `netlify/functions/vigia-background.mjs` | junta, arma y manda; candado de 20 min contra el doble disparo; guarda la foto del día |
+| `netlify/functions/vigia-background.mjs` | junta, arma y manda por DM; candado de 20 min contra el doble disparo; guarda la foto del día |
 | `netlify/functions/vigia-semanal.mjs` + `vigia-semanal-background.mjs` | el semanal de los lunes |
 | `lib/vigia/semanal.js` | arma el semanal (1 llamada a Gemini, cero a Zoho) |
 | `lib/vigia/dm.js` | destinatarios y DM por Slack |
@@ -44,12 +44,13 @@ Límite conocido: si hubo más de 200 conversaciones con movimiento (Matías man
 
 | Variable | Para qué | Si falta |
 |---|---|---|
-| `SLACK_WEBHOOK_VIGIA` | el canal del informe | modo sombra: arma y guarda en el store `vigia`, no manda |
+| `SLACK_BOT_TOKEN` (ya cargado) o `SLACK_BOT_TOKEN_VIGIA` | DM del diario y del semanal (`chat:write`) | modo sombra: arma y guarda en el store `vigia`, no manda |
+| `VIGIA_DIARIO_A` | opcional: ID de Slack que recibe el diario | `U0869LQ3G4C` (Ignacio) |
+| `SLACK_WEBHOOK_VIGIA` | opcional: además del DM, copia del diario a un canal | solo DM |
 | `VIGIA_API_BASE` + `VIGIA_API_KEY` | errores del panel y pagos/firmas trabados (header `x-vigia-key`) | línea "Errores del panel: pendiente de acceso" |
-| `SLACK_BOT_TOKEN_VIGIA` | DMs del semanal (xoxb, chat:write + im:write) | modo sombra del semanal |
 | `VIGIA_RESPONSABLES` | opcional: lista de quién hace qué para el semanal | la de `semanal.js` |
 | `VIGIA_WHATSAPP` | `0` apaga el bloque WhatsApp | prendido |
-| `GEMINI_API_KEY`, `ZOHO_*`, `SLACK_BOT_TOKEN` | ya están cargadas para los otros agentes | |
+| `GEMINI_API_KEY`, `ZOHO_*` | ya están cargadas para los otros agentes | |
 
 ## Contrato pedido a Benja (API del panel)
 

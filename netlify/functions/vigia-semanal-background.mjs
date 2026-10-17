@@ -67,7 +67,7 @@ export default async (req) => {
     let enviado = false;
     if (seco) detalle = 'seco: no se envio';
     else if (!destino) detalle = `hora ${hora} UTC sin destinatario`;
-    else if (!hayToken()) detalle = 'MODO SOMBRA: falta SLACK_BOT_TOKEN_VIGIA';
+    else if (!hayToken()) detalle = 'MODO SOMBRA: falta SLACK_BOT_TOKEN';
     else {
       await mandarDm(destino.slack, armado.texto);
       enviado = true;
