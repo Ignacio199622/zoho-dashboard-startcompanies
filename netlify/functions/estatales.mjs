@@ -16,8 +16,8 @@
  * DM por chat.postMessage al ID de usuario, como el Vigia (chat:write alcanza).
  */
 import { env } from './lib/entorno.js';
-import { paginado } from './lib/control-crm/zoho.js';
-import { filasEstatales, armarAviso } from './lib/estatales.js';
+import { paginado, tokenActual } from './lib/control-crm/zoho.js';
+import { filasEstatales, armarAviso, fechasParaZoho } from './lib/estatales.js';
 import { avisarFalla } from './lib/aviso-falla.js';
 
 const A = (env.ESTATALES_A || 'U08LT8252Q3,U0BTT434078').split(',').map((s) => s.trim()).filter(Boolean); // Nacho Campo, Pablo
@@ -35,17 +35,40 @@ async function postear(channel, text) {
   if (!j.ok) throw new Error(`${channel}: ${j.error}`);
 }
 
+/**
+ * Corrige en Zoho la fecha estatal de cada LLC (ver fechasParaZoho). trigger:[] para no
+ * disparar reglas. ESTATALES_CORREGIR_ZOHO=0 lo apaga. Devuelve cuantas cambio.
+ */
+async function corregirFechasZoho(cambios) {
+  if (env.ESTATALES_CORREGIR_ZOHO === '0' || !cambios.length) return 0;
+  const tok = await tokenActual();
+  let ok = 0;
+  for (let i = 0; i < cambios.length; i += 100) {
+    const r = await fetch('https://www.zohoapis.com/crm/v6/Accounts', {
+      method: 'PUT',
+      headers: { Authorization: `Zoho-oauthtoken ${tok}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: cambios.slice(i, i + 100), trigger: [] }),
+    });
+    const j = await r.json().catch(() => ({}));
+    ok += (j.data || []).filter((d) => d.code === 'SUCCESS').length;
+  }
+  return ok;
+}
+
 export default async () => {
   const ar = new Date(Date.now() - 3 * 3600e3);
   const toca = ar.getUTCDate() === 1 || ar.getUTCDay() === 1;
-  if (!toca) return new Response('hoy no toca');
 
   try {
     const [llcs, tratos] = await Promise.all([
-      paginado('Accounts', 'id,Account_Name,Estado_de_Registro,Fecha_de_Constituci_n,ltima_renovaci_n_estatal,Socio,Status'),
+      paginado('Accounts', 'id,Account_Name,Estado_de_Registro,Fecha_de_Constituci_n,ltima_renovaci_n_estatal,Fecha_renovaci_n_estatal,Socio,Status'),
       paginado('Deals', 'id,Type,Account_Name,Renovaci_n_estatal,Renovaci_n_federal,Origen_del_trato,Created_Time'),
     ]);
-    const aviso = armarAviso(filasEstatales(llcs, tratos), LINK);
+    const filas = filasEstatales(llcs, tratos);
+    // Todos los dias: la fecha estatal de Zoho (la que muestra el panel) queda igual a la real.
+    const corregidas = await corregirFechasZoho(fechasParaZoho(filas, llcs));
+    if (!toca) return new Response(`hoy no toca el aviso; fechas corregidas en Zoho: ${corregidas}`);
+    const aviso = armarAviso(filas, LINK);
     if (!aviso) return new Response('nada pendiente');
 
     const destinos = aviso.vencidas ? [...A, IGNACIO] : A;

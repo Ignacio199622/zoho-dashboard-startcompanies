@@ -150,3 +150,19 @@ export function armarAviso(filas, link) {
   if (venc.length) bloque('*🔴 Vencidas sin confirmar*', venc);
   return { mensajes, vencidas: venc.length, proximas: prox.length };
 }
+
+/**
+ * La fecha estatal correcta para Zoho (Accounts.Fecha_renovaci_n_estatal).
+ *
+ * La regla de Zoho sc_autocompletar_renovacion la llena una sola vez con "la proxima
+ * fecha desde hoy": las vencidas saltan al año siguiente (2027) y nunca se ven atrasadas,
+ * y el panel muestra esa fecha. Aca se pisa con el vencimiento pendiente real de cada
+ * LLC que renueva con nosotros (puede estar en el pasado = vencida). Solo devuelve las
+ * que cambian. Las "Al dia" y "Revisar a mano" no se tocan.
+ */
+export function fechasParaZoho(filas, llcs) {
+  const actual = new Map(llcs.map((a) => [a.id, String(a.Fecha_renovaci_n_estatal || '').slice(0, 10)]));
+  return filas
+    .filter((f) => f.vence && actual.get(f.id) !== f.vence)
+    .map((f) => ({ id: f.id, Fecha_renovaci_n_estatal: f.vence }));
+}
