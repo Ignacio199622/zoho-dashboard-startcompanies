@@ -38,11 +38,12 @@ import { obtener, actualizar } from './lib/casos.js';
 import { registrarAprobacion } from './lib/aprobacion.js';
 import { armarTarjeta, modalEdicion, api as slack } from './lib/slack.js';
 import { env } from './lib/entorno.js';
+import { manejarCliente } from './lib/clientes-boton.js';
 
 const VENTANA_FIRMA = 5 * 60; // segundos, lo que recomienda Slack
 
 // Que agente atiende cada boton, por prefijo del action_id. Ver la cabecera.
-const MANEJADORES = { coach_: manejarCoach };
+const MANEJADORES = { coach_: manejarCoach, cli_: manejarCliente };
 
 function manejadorPara(actionId = '') {
   const par = Object.entries(MANEJADORES).find(([prefijo]) => actionId.startsWith(prefijo));

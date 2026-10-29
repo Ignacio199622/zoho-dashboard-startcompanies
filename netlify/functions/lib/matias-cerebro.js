@@ -85,12 +85,16 @@ export const registroDe = (numero) => {
   if (pais === 'BR') return 'pt';
   return VOSEA.has(pais) ? 'vos' : 'tu';
 };
+// Ignacio (22-oct-2026): el SDR pasa a llamarse Daniel (foto y perfil del +52 ya cambiados).
+// Cada plantilla sdr_matias_* tiene su copia sdr_daniel_*; mientras Meta no la apruebe sale la de Matías.
+const aDaniel = (nombre) => nombre.replace('sdr_matias_', 'sdr_daniel_');
+const conDaniel = (lista) => lista.flatMap((c) => [aDaniel(c), c]);
 export function plantillaPara(clave, numero, estados = {}) {
   // Portugués: SOLO la gemela "<nombre>_pt" aprobada. Si no hay, null y el llamador
   // no manda nada. Nunca cae a la plantilla en español.
   if (registroDe(numero) === 'pt') {
     const gemelas = [PLANTILLAS[clave], PLANTILLAS_SIN_BOTONES[clave]].filter(Boolean).map((b) => `${b}_pt`);
-    return gemelas.find((c) => estados[c] === 'APPROVED') || null;
+    return conDaniel(gemelas).find((c) => estados[c] === 'APPROVED') || null;
   }
   const tutea = registroDe(numero) === 'tu';
   const candidatas = [];
@@ -99,68 +103,68 @@ export function plantillaPara(clave, numero, estados = {}) {
     candidatas.push(base);
   }
   // Sin estados (modo sombra) va la primera; con estados, la primera APROBADA.
-  if (!Object.keys(estados).length) return candidatas[0];
-  return candidatas.find((c) => estados[c] === 'APPROVED') || candidatas[0];
+  if (!Object.keys(estados).length) return aDaniel(candidatas[0]);
+  return conDaniel(candidatas).find((c) => estados[c] === 'APPROVED') || candidatas[0];
 }
 /** El texto exacto de cada plantilla, para el hilo de Slack y la nota en Zoho. */
 export const TEXTOS = {
   // Textos de las `_btn` (18-sep). Si sale la versión vieja sin botones, el texto real
   // difiere un poco (no tiene la última frase de la llamada corta).
   meta: {
-    vos: (n) => `Hola ${n}, ¿cómo estás? Soy Matías, de Start Companies. Me llegó tu pedido de info para abrir una LLC en Estados Unidos. Contame, ¿la querés para facturarle a clientes de afuera o para vender online? Si preferís, lo charlamos en una llamada corta de 15 minutos.`,
-    tu: (n) => `Hola ${n}, ¿cómo estás? Soy Matías, de Start Companies. Me llegó tu pedido de info para abrir una LLC en Estados Unidos. Cuéntame, ¿la quieres para facturarle a clientes de afuera o para vender online? Si prefieres, lo charlamos en una llamada corta de 15 minutos.`,
-    pt: (n) => `Olá ${n}, tudo bem? Sou o Matías, da Start Companies. Recebi seu pedido de informações para abrir uma LLC nos Estados Unidos. Me conta, você quer a LLC para faturar para clientes de fora ou para vender online? Se preferir, a gente conversa numa ligação rápida de 15 minutos.`,
+    vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido de info para abrir una LLC en Estados Unidos. Contame, ¿la querés para facturarle a clientes de afuera o para vender online? Si preferís, lo charlamos en una llamada corta de 15 minutos.`,
+    tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido de info para abrir una LLC en Estados Unidos. Cuéntame, ¿la quieres para facturarle a clientes de afuera o para vender online? Si prefieres, lo charlamos en una llamada corta de 15 minutos.`,
+    pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Recebi seu pedido de informações para abrir uma LLC nos Estados Unidos. Me conta, você quer a LLC para faturar para clientes de fora ou para vender online? Se preferir, a gente conversa numa ligação rápida de 15 minutos.`,
   },
   lili: {
-    vos: (n) => `Hola ${n}, ¿cómo estás? Soy Matías, de Start Companies. Vi que te interesa la cuenta con Lili. ¿Ya tenés tu LLC abierta o arrancás de cero? Si querés lo vemos en una llamada corta de 15 minutos.`,
-    tu: (n) => `Hola ${n}, ¿cómo estás? Soy Matías, de Start Companies. Vi que te interesa la cuenta con Lili. ¿Ya tienes tu LLC abierta o empiezas de cero? Si quieres lo vemos en una llamada corta de 15 minutos.`,
-    pt: (n) => `Olá ${n}, tudo bem? Sou o Matías, da Start Companies. Vi que você tem interesse na conta com a Lili. Você já tem sua LLC aberta ou vai começar do zero? Se quiser, a gente vê isso numa ligação rápida de 15 minutos.`,
+    vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que te interesa la cuenta con Lili. ¿Ya tenés tu LLC abierta o arrancás de cero? Si querés lo vemos en una llamada corta de 15 minutos.`,
+    tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que te interesa la cuenta con Lili. ¿Ya tienes tu LLC abierta o empiezas de cero? Si quieres lo vemos en una llamada corta de 15 minutos.`,
+    pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Vi que você tem interesse na conta com a Lili. Você já tem sua LLC aberta ou vai começar do zero? Se quiser, a gente vê isso numa ligação rápida de 15 minutos.`,
   },
   socios: {
-    vos: (n) => `Hola ${n}, ¿cómo estás? Soy Matías, de Start Companies. Vi que te interesa abrir una LLC para vos. ¿Ya sabés desde qué país vas a operar? Si querés lo vemos juntos en una llamada corta de 15 minutos.`,
-    tu: (n) => `Hola ${n}, ¿cómo estás? Soy Matías, de Start Companies. Vi que te interesa abrir una LLC para ti. ¿Ya sabes desde qué país vas a operar? Si quieres lo vemos juntos en una llamada corta de 15 minutos.`,
-    pt: (n) => `Olá ${n}, tudo bem? Sou o Matías, da Start Companies. Vi que você tem interesse em abrir uma LLC para você. Já sabe de qual país vai operar? Se quiser, a gente vê junto numa ligação rápida de 15 minutos.`,
+    vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que te interesa abrir una LLC para vos. ¿Ya sabés desde qué país vas a operar? Si querés lo vemos juntos en una llamada corta de 15 minutos.`,
+    tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que te interesa abrir una LLC para ti. ¿Ya sabes desde qué país vas a operar? Si quieres lo vemos juntos en una llamada corta de 15 minutos.`,
+    pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Vi que você tem interesse em abrir uma LLC para você. Já sabe de qual país vai operar? Se quiser, a gente vê junto numa ligação rápida de 15 minutos.`,
   },
   partner: {
-    vos: (n) => `Hola ${n}, ¿cómo estás? Soy Matías, de Start Companies. Vi que querés sumarte como socio para ofrecer LLCs en Estados Unidos a tus clientes. ¿Hoy ya trabajás con emprendedores que facturan en dólares? Si querés te cuento cómo funciona en una llamada corta.`,
-    tu: (n) => `Hola ${n}, ¿cómo estás? Soy Matías, de Start Companies. Vi que quieres sumarte como socio para ofrecer LLCs en Estados Unidos a tus clientes. ¿Hoy ya trabajas con emprendedores que facturan en dólares? Si quieres te cuento cómo funciona en una llamada corta.`,
-    pt: (n) => `Olá ${n}, tudo bem? Sou o Matías, da Start Companies. Vi que você quer ser parceiro para oferecer LLCs nos Estados Unidos aos seus clientes. Você já trabalha com empreendedores que faturam em dólar? Se quiser, te explico como funciona numa ligação rápida.`,
+    vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que querés sumarte como socio para ofrecer LLCs en Estados Unidos a tus clientes. ¿Hoy ya trabajás con emprendedores que facturan en dólares? Si querés te cuento cómo funciona en una llamada corta.`,
+    tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que quieres sumarte como socio para ofrecer LLCs en Estados Unidos a tus clientes. ¿Hoy ya trabajas con emprendedores que facturan en dólares? Si quieres te cuento cómo funciona en una llamada corta.`,
+    pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Vi que você quer ser parceiro para oferecer LLCs nos Estados Unidos aos seus clientes. Você já trabalha com empreendedores que faturam em dólar? Se quiser, te explico como funciona numa ligação rápida.`,
   },
   seguimiento: {
-    vos: (n, dato) => `Hola ${n}, Matías de Start Companies otra vez. Te dejo un dato que suele destrabar la decisión: ${dato} Si querés lo vemos en una videollamada de 15 minutos, ¿te va mañana o pasado?`,
-    tu: (n, dato) => `Hola ${n}, Matías de Start Companies otra vez. Te dejo un dato que suele destrabar la decisión: ${dato} Si quieres lo vemos en una videollamada de 15 minutos, ¿te va mañana o pasado?`,
-    pt: (n, dato) => `Olá ${n}, aqui é o Matías da Start Companies de novo. Deixo uma informação que costuma ajudar na decisão: ${dato} Se quiser, a gente vê isso numa videochamada de 15 minutos, pode ser amanhã ou depois?`,
+    vos: (n, dato) => `Hola ${n}, Daniel de Start Companies otra vez. Te dejo un dato que suele destrabar la decisión: ${dato} Si querés lo vemos en una videollamada de 15 minutos, ¿te va mañana o pasado?`,
+    tu: (n, dato) => `Hola ${n}, Daniel de Start Companies otra vez. Te dejo un dato que suele destrabar la decisión: ${dato} Si quieres lo vemos en una videollamada de 15 minutos, ¿te va mañana o pasado?`,
+    pt: (n, dato) => `Olá ${n}, aqui é o Daniel da Start Companies de novo. Deixo uma informação que costuma ajudar na decisão: ${dato} Se quiser, a gente vê isso numa videochamada de 15 minutos, pode ser amanhã ou depois?`,
   },
   horarios: {
-    vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Matías otra vez, de Start Companies. Te paso lo que tengo libre para la asesoría de 15 minutos: ${libres}. ¿Cuál te queda mejor? Me decís y te la dejo reservada.`,
-    tu: (n, libres) => `Hola ${n}, ¿cómo va? Soy Matías otra vez, de Start Companies. Te paso lo que tengo libre para la asesoría de 15 minutos: ${libres}. ¿Cuál te queda mejor? Me dices y te la dejo reservada.`,
-    pt: (n, libres) => `Olá ${n}, tudo bem? Aqui é o Matías de novo, da Start Companies. Te passo os horários livres para a assessoria de 15 minutos: ${libres}. Qual fica melhor para você? Me diz e eu deixo reservado.`,
+    vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel otra vez, de Start Companies. Te paso lo que tengo libre para la asesoría de 15 minutos: ${libres}. ¿Cuál te queda mejor? Me decís y te la dejo reservada.`,
+    tu: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel otra vez, de Start Companies. Te paso lo que tengo libre para la asesoría de 15 minutos: ${libres}. ¿Cuál te queda mejor? Me dices y te la dejo reservada.`,
+    pt: (n, libres) => `Olá ${n}, tudo bem? Aqui é o Daniel de novo, da Start Companies. Te passo os horários livres para a assessoria de 15 minutos: ${libres}. Qual fica melhor para você? Me diz e eu deixo reservado.`,
   },
   confirmacion: {
-    vos: (n, cuando, libres) => `Hola ${n}, ¿cómo va? Soy Matías, de Start Companies. Mañana tenés la asesoría el ${cuando}. Si te viene bien, contestame que sí y listo. Si te complica, tengo libre ${libres}: decime cuál y la paso.`,
-    tu: (n, cuando, libres) => `Hola ${n}, ¿cómo va? Soy Matías, de Start Companies. Mañana tienes la asesoría el ${cuando}. Si te viene bien, contéstame que sí y listo. Si te complica, tengo libre ${libres}: dime cuál y la paso.`,
-    pt: (n, cuando, libres) => `Olá ${n}, tudo bem? Sou o Matías, da Start Companies. Amanhã você tem a assessoria: ${cuando}. Se estiver tudo certo, me responde que sim. Se não der, tenho livre ${libres}: me diz qual e eu mudo.`,
+    vos: (n, cuando, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Mañana tenés la asesoría el ${cuando}. Si te viene bien, contestame que sí y listo. Si te complica, tengo libre ${libres}: decime cuál y la paso.`,
+    tu: (n, cuando, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Mañana tienes la asesoría el ${cuando}. Si te viene bien, contéstame que sí y listo. Si te complica, tengo libre ${libres}: dime cuál y la paso.`,
+    pt: (n, cuando, libres) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Amanhã você tem a assessoria: ${cuando}. Se estiver tudo certo, me responde que sim. Se não der, tenho livre ${libres}: me diz qual e eu mudo.`,
   },
   // Reserva nueva: video + Sí/No en un solo mensaje, con botones "Sí, confirmo" / "Otro horario".
   reservaVideo: {
-    vos: (n, cuando) => `Hola ${n}, soy Matías, de Start Companies. Tu llamada quedó agendada para el ${cuando}. Te dejo este video de un minuto con lo que vamos a ver. ¿Me confirmás que vas a poder conectarte? Tocá "Sí, confirmo". Si no recibimos tu confirmación en 3 horas, el turno queda liberado para otra persona.`,
-    tu: (n, cuando) => `Hola ${n}, soy Matías, de Start Companies. Tu llamada quedó agendada para el ${cuando}. Te dejo este video de un minuto con lo que vamos a ver. ¿Me confirmas que vas a poder conectarte? Toca "Sí, confirmo". Si no recibimos tu confirmación en 3 horas, el turno queda liberado para otra persona.`,
-    pt: (n, cuando) => `Olá ${n}, sou o Matías, da Start Companies. Sua ligação ficou agendada para ${cuando}. Deixo este vídeo de um minuto com o que vamos ver. Você confirma que vai conseguir participar? Toque em "Sim, confirmo". Se não recebermos sua confirmação em 3 horas, o horário fica liberado para outra pessoa.`,
+    vos: (n, cuando) => `Hola ${n}, soy Daniel, de Start Companies. Tu llamada quedó agendada para el ${cuando}. Te dejo este video de un minuto con lo que vamos a ver. ¿Me confirmás que vas a poder conectarte? Tocá "Sí, confirmo". Si no recibimos tu confirmación en 3 horas, el turno queda liberado para otra persona.`,
+    tu: (n, cuando) => `Hola ${n}, soy Daniel, de Start Companies. Tu llamada quedó agendada para el ${cuando}. Te dejo este video de un minuto con lo que vamos a ver. ¿Me confirmas que vas a poder conectarte? Toca "Sí, confirmo". Si no recibimos tu confirmación en 3 horas, el turno queda liberado para otra persona.`,
+    pt: (n, cuando) => `Olá ${n}, sou o Daniel, da Start Companies. Sua ligação ficou agendada para ${cuando}. Deixo este vídeo de um minuto com o que vamos ver. Você confirma que vai conseguir participar? Toque em "Sim, confirmo". Se não recebermos sua confirmação em 3 horas, o horário fica liberado para outra pessoa.`,
   },
   noAsistio: {
-    vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Matías, de Start Companies. Te estuve esperando en la asesoría y no pudiste entrar, ¿pasó algo? Si querés la hacemos otro día, tengo libre ${libres}. Me decís cuál te va y te la dejo reservada.`,
-    tu: (n, libres) => `Hola ${n}, ¿cómo va? Soy Matías, de Start Companies. Te estuve esperando en la asesoría y no pudiste entrar, ¿pasó algo? Si quieres la hacemos otro día, tengo libre ${libres}. Me dices cuál te va y te la dejo reservada.`,
-    pt: (n, libres) => `Olá ${n}, tudo bem? Sou o Matías, da Start Companies. Fiquei te esperando na assessoria e você não conseguiu entrar, aconteceu alguma coisa? Se quiser, a gente faz outro dia, tenho livre ${libres}. Me diz qual fica bom e eu deixo reservado.`,
+    vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Te estuve esperando en la asesoría y no pudiste entrar, ¿pasó algo? Si querés la hacemos otro día, tengo libre ${libres}. Me decís cuál te va y te la dejo reservada.`,
+    tu: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Te estuve esperando en la asesoría y no pudiste entrar, ¿pasó algo? Si quieres la hacemos otro día, tengo libre ${libres}. Me dices cuál te va y te la dejo reservada.`,
+    pt: (n, libres) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Fiquei te esperando na assessoria e você não conseguiu entrar, aconteceu alguma coisa? Se quiser, a gente faz outro dia, tenho livre ${libres}. Me diz qual fica bom e eu deixo reservado.`,
   },
   noAsistioAnterior: {
-    vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Matías, de Start Companies. Vi que no pudiste entrar a la asesoría, ¿pasó algo? Si querés la hacemos otro día: tengo libre ${libres}. Decime cuál te va y te la reservo.`,
-    tu: (n, libres) => `Hola ${n}, ¿cómo va? Soy Matías, de Start Companies. Vi que no pudiste entrar a la asesoría, ¿pasó algo? Si querés la hacemos otro día: tengo libre ${libres}. Decime cuál te va y te la reservo.`,
-    pt: (n, libres) => `Olá ${n}, tudo bem? Sou o Matías, da Start Companies. Vi que você não conseguiu entrar na assessoria, aconteceu alguma coisa? Se quiser, a gente faz outro dia: tenho livre ${libres}. Me diz qual fica bom e eu reservo.`,
+    vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Vi que no pudiste entrar a la asesoría, ¿pasó algo? Si querés la hacemos otro día: tengo libre ${libres}. Decime cuál te va y te la reservo.`,
+    tu: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Vi que no pudiste entrar a la asesoría, ¿pasó algo? Si querés la hacemos otro día: tengo libre ${libres}. Decime cuál te va y te la reservo.`,
+    pt: (n, libres) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Vi que você não conseguiu entrar na assessoria, aconteceu alguma coisa? Se quiser, a gente faz outro dia: tenho livre ${libres}. Me diz qual fica bom e eu reservo.`,
   },
   cancelada: {
-    vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Matías, de Start Companies. Vi que tu asesoría quedó cancelada. Si querés la hacemos otro día, tengo libre ${libres}. Me decís cuál te va y te la dejo reservada.`,
-    tu: (n, libres) => `Hola ${n}, ¿cómo va? Soy Matías, de Start Companies. Vi que tu asesoría quedó cancelada. Si quieres la hacemos otro día, tengo libre ${libres}. Me dices cuál te va y te la dejo reservada.`,
-    pt: (n, libres) => `Olá ${n}, tudo bem? Sou o Matías, da Start Companies. Vi que sua assessoria foi cancelada. Se quiser, a gente faz outro dia, tenho livre ${libres}. Me diz qual fica bom e eu deixo reservado.`,
+    vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Vi que tu asesoría quedó cancelada. Si querés la hacemos otro día, tengo libre ${libres}. Me decís cuál te va y te la dejo reservada.`,
+    tu: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Vi que tu asesoría quedó cancelada. Si quieres la hacemos otro día, tengo libre ${libres}. Me dices cuál te va y te la dejo reservada.`,
+    pt: (n, libres) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Vi que sua assessoria foi cancelada. Se quiser, a gente faz outro dia, tenho livre ${libres}. Me diz qual fica bom e eu deixo reservado.`,
   },
 };
 TEXTOS.ctwa = TEXTOS.meta;
@@ -221,7 +225,8 @@ export const despedidaDe = (numero) => (registroDe(numero) === 'pt'
 export const textoDe = (clave, plantilla, ...args) => {
   const p = String(plantilla);
   const reg = p.endsWith('_pt') ? 'pt' : p.endsWith('_tu') ? 'tu' : 'vos';
-  return (TEXTOS[clave][reg] || TEXTOS[clave].tu)(...args);
+  const texto = (TEXTOS[clave][reg] || TEXTOS[clave].tu)(...args);
+  return p.includes('sdr_matias_') ? texto.replace(/Daniel/g, 'Matías') : texto;
 };
 
 /**
@@ -259,12 +264,37 @@ export const respuestaPersona = (numero) => (registroDe(numero) === 'pt'
 
 export function origenDe(lead) {
   const tags = (lead?.Tag || []).map((t) => String(t.name || t).toLowerCase());
-  if (tags.some((t) => /whatsapp matias/.test(t))) return 'ctwa'; // escribió él desde un anuncio
+  // Lili y partners antes que ctwa: el que escribe desde un anuncio de Lili va al calendario de
+  // Lili (16-oct, Alberto: anuncio de WhatsApp de Lili y Matías lo reservaba en el de LLC).
   if (tags.some((t) => /lili/.test(t))) return 'lili';
   if (tags.some((t) => /socio|partner/.test(t))) {
     return /partner/i.test(String(lead?.Tipo || '')) ? 'partner' : 'socios';
   }
+  if (tags.some((t) => /whatsapp matias/.test(t))) return 'ctwa'; // escribió él desde un anuncio
   return 'meta';
+}
+
+/**
+ * El calendario de una reunión, por su título. Al recuperar una cancelada o un no-show manda
+ * la reunión original, no las etiquetas (16-oct, Luis Navas y Alberto: reservaron Lili, se
+ * cancelaron y Matías los reagendó en la consulta de LLC porque la ficha no tenía la etiqueta
+ * de Lili o venía de un anuncio de WhatsApp).
+ */
+export function origenDeReunion(titulo) {
+  const t = String(titulo || '');
+  if (/lili/i.test(t)) return 'lili';
+  // "Socios Start Companies" es el calendario de partnerships (event type 7008119 = CALENDARIOS.partner).
+  if (/socios start companies/i.test(t)) return 'partner';
+  return '';
+}
+/** Origen para ofrecer y reservar: el de la reunión que se está recuperando, si hay. */
+export function origenPara(lead, estado) {
+  const reunion = origenDeReunion(estado?.noshow?.titulo);
+  if (reunion) return reunion;
+  const porTags = lead ? origenDe(lead) : '';
+  if (['lili', 'partner'].includes(porTags)) return porTags;
+  if (['lili', 'partner'].includes(estado?.origen)) return estado.origen;
+  return porTags || estado?.origen || 'meta';
 }
 
 const PAISES = { BR: 'Brasil', AR: 'Argentina', MX: 'México', CO: 'Colombia', ES: 'España', CL: 'Chile', PE: 'Perú', VE: 'Venezuela', EC: 'Ecuador', UY: 'Uruguay', PY: 'Paraguay', US: 'Estados Unidos' };
@@ -281,7 +311,7 @@ export function paisDe(numero) {
   return null;
 }
 
-const INSTRUCCIONES = `Sos Matías, del equipo comercial de Start Companies. Escribís por WhatsApp a personas que
+const INSTRUCCIONES = `Sos Daniel, del equipo comercial de Start Companies. Escribís por WhatsApp a personas que
 pidieron información para abrir una LLC en Estados Unidos (o una cuenta con Lili, o vienen del
 formulario de socios pero quieren una LLC para ellos). Tu ÚNICO objetivo es que agenden una
 asesoría gratuita de 15 minutos. No vendés por chat, no explicás todo por chat: agendás.
@@ -289,11 +319,13 @@ asesoría gratuita de 15 minutos. No vendés por chat, no explicás todo por cha
 CÓMO ESCRIBÍS
 - Español neutro, cercano, de a una idea. Máximo 3 líneas por mensaje. Sin emojis, sin signos
   de exclamación seguidos, sin mayúsculas para gritar.
-- Contestás lo que te preguntan en una o dos líneas y SIEMPRE cerrás con la reunión: dos
-  opciones concretas ("¿te va mañana a la mañana o el jueves a la tarde?"). SIN link: la
-  reserva la hacés vos (ver AGENDÁS VOS). El link solo si el lead lo pide.
-- Si el lead dice que quiere avanzar, abrir, empezar: no explicás nada, le ofrecés horarios
-  (accion ofrecer_horarios).
+- Contestás lo que te preguntan en una o dos líneas y SIEMPRE cerrás con la reunión
+  PREGUNTÁNDOLE A ÉL qué día y en qué horario le queda cómodo ("¿qué día y a qué hora te
+  queda cómodo una llamada de 15 minutos?"). Vos no le proponés días ni horarios antes de que
+  te diga cuándo puede (Ignacio, 22-oct: "siempre preguntale los horarios al cliente"). SIN
+  link: la reserva la hacés vos (ver AGENDÁS VOS). El link solo si el lead lo pide.
+- Si el lead dice que quiere avanzar, abrir, empezar: no explicás nada, le preguntás qué día
+  y horario le queda bien. Cuando lo diga, ofrecer_horarios con ese día y franja.
 - Insistís con valor, no con "¿viste mi mensaje?". Cada mensaje trae algo nuevo (un dato de su
   país, qué resuelve la reunión, cuánto tarda). Nunca dos mensajes seguidos tuyos sin respuesta
   del lead: si te toca hacer seguimiento, es uno solo y corto.
@@ -315,22 +347,23 @@ SONÁS COMO UNA PERSONA, NO COMO UN BOT (Ignacio, 18-sep: "lo más humano posibl
 - Podés reconocer lo que dijo antes de contestar ("Claro, tiene sentido", "Ah, entiendo"),
   sin exagerar. Nada de frases de call center: "con gusto te ayudo", "estimado", "quedo
   atento", "no dudes en", "estaré encantado".
-- Variá los cierres: no siempre "¿te va mañana o pasado?". Alterná con "¿cuándo te queda
-  cómodo?", "¿mañana a la tarde te sirve?", "¿lo vemos esta semana?".
-- Si el lead tocó el botón "Quiero agendar" (su mensaje dice eso literal), no le repreguntes
-  nada: ofrecé horarios enseguida (accion ofrecer_horarios, dia = mañana).
+- Variá los cierres, siempre preguntando por SU disponibilidad: "¿cuándo te queda cómodo?",
+  "¿qué día de esta semana te sirve y a qué hora?", "¿preferís a la mañana o a la tarde, y qué día?".
+- Si el lead tocó el botón "Quiero agendar" (su mensaje dice eso literal), no le preguntes
+  nada más que eso: qué día y en qué horario le queda bien, en una línea (accion ninguna).
 - Si se ríe, bromea o manda un "jaja", seguile el tono con naturalidad. Sin emojis igual.
 
 SI TE ESCRIBEN PRIMERO (Ignacio, 18-sep: "siempre que nos chateen, presentarte primero")
 - Si en la conversación no hay ningún mensaje tuyo antes del suyo (llegó por un anuncio, por
   el número suelto, o su mensaje es lo primero que hay), tu primera respuesta es SIEMPRE
   presentarte y calificar en una, sin ofrecer horarios ni link todavía:
-  VOS: "Hola, soy Matías de Start Companies. ¿Estás buscando una LLC para facturar al exterior o
+  VOS: "Hola, soy Daniel de Start Companies. ¿Estás buscando una LLC para facturar al exterior o
   por inversiones? Contame un poco más así te oriento."
-  TÚ: "Hola, soy Matías de Start Companies. ¿Estás buscando una LLC para facturar al exterior o
+  TÚ: "Hola, soy Daniel de Start Companies. ¿Estás buscando una LLC para facturar al exterior o
   por inversiones? Cuéntame un poco más así te oriento."
   Si su primer mensaje ya dice para qué la quiere, igual te presentás en la primera línea y
-  después preguntás una sola cosa más. Con lo que conteste, lo llevás a la llamada (dos horarios).
+  después preguntás una sola cosa más. Con lo que conteste, lo llevás a la llamada preguntándole
+  qué día y horario le queda cómodo.
 
 LO QUE SABÉS (y nada más)
 - Start Companies abre LLCs en Estados Unidos 100% online, con cuenta bancaria, en unos 7 a 12
@@ -345,8 +378,8 @@ SI EL LEAD QUIERE SER SOCIO (llegó por el formulario de socios como posible par
 - Tu objetivo sigue siendo la llamada, pero es la llamada de partnerships: ahí se ve el modelo
   (cómo deriva clientes, qué gana por cada uno, materiales). No vendés una LLC, no das cifras de
   comisión ni precios mayoristas por chat: "eso lo vemos en la llamada, depende del volumen".
-- Preguntá por su negocio (a qué se dedica, cuántos clientes podría derivar por mes) y cerrá con
-  dos horarios (sin link, la reserva la hacés vos).
+- Preguntá por su negocio (a qué se dedica, cuántos clientes podría derivar por mes) y cerrá
+  preguntándole qué día y horario le queda cómodo (sin link, la reserva la hacés vos).
 
 CALIFICÁS ANTES DE AGENDAR (Ignacio, 15-sep: "apretá para que agende, pero que sea calificado")
 - Calificado = tiene o va a tener una actividad que cobra en dólares o vende afuera: freelancer,
@@ -354,7 +387,7 @@ CALIFICÁS ANTES DE AGENDAR (Ignacio, 15-sep: "apretá para que agende, pero que
   clientes. Con eso alcanza: no interrogás, no pedís facturación ni documentos.
 - Si de la conversación no queda claro para qué quiere la LLC, hacés UNA sola pregunta corta
   ("¿es para facturarle a clientes de afuera, vender online o invertir?") y con la respuesta
-  ofrecés horarios. Nunca más de una pregunta antes de ofrecer.
+  le preguntás qué día y horario le queda cómodo. Nunca más de una pregunta antes de eso.
 - Si lo que busca NO es una LLC ni una cuenta (visa, residencia, trabajo en Estados Unidos,
   préstamos, un empleo con nosotros, trámites personales, sin ninguna actividad ni intención de
   facturar), no ofrecés horarios ni lo apurás: se lo decís en una línea, amable, y cerrás con
@@ -362,7 +395,7 @@ CALIFICÁS ANTES DE AGENDAR (Ignacio, 15-sep: "apretá para que agende, pero que
   de apertura de LLC y cuenta en Estados Unidos. Si más adelante armás algo para facturar afuera,
   escribime."). Después de eso no se le escribe más.
 - Si duda ("no sé si me conviene", "solo quiero información"): eso SÍ es calificado, la
-  asesoría es justamente para eso; ofrecés horarios.
+  asesoría es justamente para eso; le preguntás qué día y horario le queda cómodo.
 
 AGENDÁS VOS (lo más importante)
 - Podés reservar la reunión directamente, sin que el lead abra ningún link. El sistema te da los
@@ -377,9 +410,11 @@ AGENDÁS VOS (lo más importante)
   YYYY-MM-DDTHH:mm (hora del lead) y, si el lead escribió un mail, accion.email. Dejá "texto"
   vacío: la confirmación la arma el sistema. Nunca reserves un horario que no esté en la lista
   que le ofreciste.
-- Si el lead dice que quiere agendar pero no dice cuándo: ofrecé horarios de mañana
-  (accion.tipo = "ofrecer_horarios", dia = mañana, franja = "").
-- Si el lead dice que ya reservó por su cuenta, no ofrezcas nada: confirmá corto y esperalo.
+- Si el lead dice que quiere agendar pero no dice cuándo: preguntale qué día y en qué horario
+  le queda cómodo (accion ninguna). Solo si contesta "cuando sea", "el que tengas" o "cuando
+  puedas", ofrecé horarios de mañana (accion.tipo = "ofrecer_horarios", dia = mañana, franja = "").
+- Si el lead dice que ya reservó por su cuenta, no ofrezcas nada: agradecé corto y decile que
+  le va a llegar el mensaje para confirmar la asesoría, que lo confirme por ahí.
 - El link de agenda queda solo para cuando el lead prefiere elegir él o pide el link.
 
 LO QUE NO PODÉS HACER (y lo decís con honestidad, Ignacio 18-sep)
@@ -398,8 +433,8 @@ LECCIONES DE CASOS REALES (28-sep: M&K, Poncho, Miriam; se perdieron reservas po
   enfoque o respondé lo que preguntó.
 - Si ya tiene una LLC y busca contador, regularizar papeles o soporte, no le vendas abrir una:
   la asesoría es para ver su caso; ofrecé horarios para eso.
-- Si avisa que no puede ir a la reunión o pide reprogramar: agradecé que avise y ofrecé horarios
-  (accion ofrecer_horarios). Nunca "te estuvimos esperando".
+- Si avisa que no puede ir a la reunión o pide reprogramar: agradecé que avise y, si no dijo
+  cuándo puede, preguntale qué día y horario le queda mejor; si ya lo dijo, accion ofrecer_horarios. Nunca "te estuvimos esperando".
 - Si pregunta cuánto cuesta en medio de la reserva: respondé en una línea que se ve en la
   asesoría según su caso, y seguí con la reserva.
 
@@ -476,7 +511,7 @@ export async function proponer({ lead, numero, hilo = [], ultimo, hoy = '', esta
   const aprendidas = await reglasAprendidas().catch(() => []);
   const nombre = nombreHumano(lead?.First_Name) || nombreHumano(lead?.Full_Name);
   const conversacion = hilo
-    .map((h) => `${h.de === 'cliente' || h.de === 'lead' ? 'LEAD' : 'MATÍAS'}: ${h.texto}`)
+    .map((h) => `${h.de === 'cliente' || h.de === 'lead' ? 'LEAD' : 'DANIEL'}: ${h.texto}`)
     .join('\n');
   // Nos escribió él primero (sin apertura ni nada nuestro antes): la primera respuesta se
   // presenta y califica, nunca ofrece horarios (ver SI TE ESCRIBEN PRIMERO).
@@ -488,7 +523,7 @@ export async function proponer({ lead, numero, hilo = [], ultimo, hoy = '', esta
     lili: 'formulario de Lili (cuenta + LLC)',
     socios: 'formulario de socios, pero quiere una LLC para él',
     partner: 'formulario de socios: QUIERE SER SOCIO (partner), llevalo a la llamada de partnerships',
-    ctwa: 'un anuncio de Instagram o Facebook: TE ESCRIBIÓ ÉL PRIMERO. No le hables de ningún "número oficial" ni de otro mensaje: sos su único contacto. Contestá lo que pregunta en una línea y ofrecé horarios enseguida (accion ofrecer_horarios)',
+    ctwa: 'un anuncio de Instagram o Facebook: TE ESCRIBIÓ ÉL PRIMERO. No le hables de ningún "número oficial" ni de otro mensaje: sos su único contacto. Contestá lo que pregunta en una línea y preguntale qué día y horario le queda cómodo para la llamada',
   }[origen];
   // El que ya reservó no recibe más pitch ni link (Ignacio: "se calla si agendó").
   // Si igual escribe, Matías contesta corto y lo espera en la reunión.
@@ -512,15 +547,15 @@ export async function proponer({ lead, numero, hilo = [], ultimo, hoy = '', esta
       ? 'IMPORTANTE: este lead YA AGENDÓ su asesoría. No le pidas que agende, no le mandes ningún link ni le vendas nada: contestale corto y amable a lo que pregunta y decile que lo esperamos en la reunión. EXCEPCIÓN: si avisa que no puede ir o pide reprogramar, accion.tipo = "ofrecer_horarios" (y si elige uno, "reservar"): la reunión anterior se cancela sola.'
       : `Link de agenda (solo si el lead prefiere elegir él): ${LINKS[origen]}`,
     hoy || '',
-    pendiente ? `SITUACIÓN: el lead tiene una asesoría pendiente el ${pendiente.cuando || pendiente.inicio}, todavía SIN confirmar, y Matías le preguntó si cuenta con ese horario. Si dice que sí, que va, que confirma: accion.tipo = "confirmar" y en "texto" agradecé en una línea y decile que lo esperás ese día. Si elige uno de los horarios alternativos que Matías ya le ofreció (están en la conversación): accion.tipo = "reservar" con ese inicio (la reunión anterior se cancela sola). Si quiere otro día: accion.tipo = "ofrecer_horarios" con el día que diga. No le mandes el link.` : '',
-    noShow ? `SITUACIÓN: el lead NO entró a la asesoría que tenía el ${noShow.inicio}, y Matías le preguntó si pasó algo. Si elige uno de los horarios que Matías ya le ofreció (están en la conversación): accion.tipo = "reservar" con ese inicio. Si quiere otro día: accion.tipo = "ofrecer_horarios" con el día que diga. Si dice que ya no le interesa: agradecé en una línea y no insistas.` : '',
+    pendiente ? `SITUACIÓN: el lead tiene una asesoría pendiente el ${pendiente.cuando || pendiente.inicio}, todavía SIN confirmar, y Daniel le preguntó si cuenta con ese horario. Si dice que sí, que va, que confirma: accion.tipo = "confirmar" y en "texto" agradecé en una línea y decile que lo esperás ese día. Si elige uno de los horarios alternativos que Daniel ya le ofreció (están en la conversación): accion.tipo = "reservar" con ese inicio (la reunión anterior se cancela sola). Si quiere otro día: accion.tipo = "ofrecer_horarios" con el día que diga. No le mandes el link.` : '',
+    noShow ? `SITUACIÓN: el lead NO entró a la asesoría que tenía el ${noShow.inicio}, y Daniel le preguntó si pasó algo. Si elige uno de los horarios que Daniel ya le ofreció (están en la conversación): accion.tipo = "reservar" con ese inicio. Si quiere otro día: accion.tipo = "ofrecer_horarios" con el día que diga. Si dice que ya no le interesa: agradecé en una línea y no insistas.` : '',
     lead?.Email ? `El lead tiene mail cargado (${lead.Email}): podés reservar sin pedírselo.` : 'El lead NO tiene mail cargado: antes de reservar pedíselo en una línea, y cuando lo mande reservá con accion.email.',
     aprendidas.length ? ['LO QUE APRENDISTE DE CONVERSACIONES REALES (tono y manejo, nunca datos nuevos):', ...aprendidas.map((r) => `- ${r}`)].join(String.fromCharCode(10)) : '',
     !primerContacto && escribioPrimero ? 'Este lead te escribió él primero (no le mandaste apertura): sos su único contacto, no menciones el número oficial de la empresa.' : '',
     primerContacto ? 'SITUACIÓN: te escribió él primero, no hay ningún mensaje tuyo antes. Presentate y calificá (ver SI TE ESCRIBEN PRIMERO); accion.tipo = "ninguna".' : '',
     conversacion ? `Conversación hasta ahora:\n${conversacion}` : 'Todavía no hablaron.',
     `Último mensaje del lead:\n${ultimo}`,
-    'Escribí la respuesta de Matías.',
+    'Escribí la respuesta de Daniel.',
   ].join('\n\n');
 
   // `generar` devuelve { datos, uso }: lo que responde el modelo esta en `datos`.

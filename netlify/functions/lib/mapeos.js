@@ -154,9 +154,15 @@ export const LANDING_A_CANAL = {
   'abre-tu-llc': 'Meta Ads',
   'abre-tu-llc-ads': 'Meta Ads',
   presentacion: 'Meta Ads',
+  // El calendario del formulario instantaneo de Meta. Medido el 2026-09-10:
+  // 9 leads, 8 con Social Lead ID (89%). Antes estaba tratado como pagina de
+  // agendamiento generica en canal.js y por eso quedaban sin canal.
+  agendamientoform: 'Meta Ads',
+  agendaformmeta: 'Meta Ads',
   'crear-llc-usa': 'SEO / Web Orgánica',
   'abrir-llc-estados-unidos': 'YouTube Ads',
-  'agenda-organica': 'SEO / Web Orgánica',
+  // 'agenda-organica' SACADO el 29-sep-2026 (Ignacio): es el link generico de agendar;
+  // reservar ahi no prueba que haya venido de Google. Sin otra señal queda "No lo sé".
 };
 
 export function canalDesdeLanding(lp) {

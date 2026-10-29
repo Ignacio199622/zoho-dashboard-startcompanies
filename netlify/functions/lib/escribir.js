@@ -135,6 +135,17 @@ export async function escribirCampos(leadId, campos) {
   return true;
 }
 
+/**
+ * Campos de una REUNION (Events), con trigger vacio: las reuniones de cliente
+ * no estan en ningun blueprint y no queremos despertar reglas.
+ */
+export async function escribirEvento(eventoId, campos) {
+  const j = await api('Events', { method: 'PUT', body: JSON.stringify({ data: [{ id: eventoId, ...campos }], trigger: [] }) });
+  const r = (j.data || [])[0];
+  if (r?.code !== 'SUCCESS') throw new Error(`reunion: ${r?.code} ${r?.message}`);
+  return true;
+}
+
 /** Volver a leer el lead, para confirmar que quedo lo que se queria escribir. */
 export async function releerLead(leadId) {
   const j = await api(`Leads/${leadId}?fields=id,Full_Name,Description`);

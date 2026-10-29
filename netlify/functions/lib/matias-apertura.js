@@ -117,10 +117,13 @@ export const esLeadDePrueba = (lead) => {
   // Un nombre de una letra (".", "K", "M") NO es prueba: hoy contestaron y eran gente real.
   return PRUEBA.test(nombre) || /(asd|test|prueba|qa\.)/i.test(mail) || /^\+?1?(1234|0000|1111|5555)/.test(String(lead.Mobile || lead.Phone || '').replace(/[\s-]/g, ''));
 };
+// El barrido y la apertura siguen tratando como 'ctwa' al que escribió desde un anuncio, aunque
+// origenDe ahora ponga Lili/partners primero (eso es para elegir calendario, 16-oct).
+const origenApertura = (l) => ((l.Tag || []).some((t) => /whatsapp matias/i.test(String(t.name || t))) ? 'ctwa' : origenDe(l));
 const esDelBarrido = (l) => {
   const tags = (l.Tag || []).map((t) => String(t.name || t));
   if (tags.some((t) => FORMS_BACKFILL.test(t))) return true;
-  return ['lili', 'socios', 'partner'].includes(origenDe(l));
+  return ['lili', 'socios', 'partner'].includes(origenApertura(l));
 };
 
 /**
@@ -271,7 +274,7 @@ export async function pasada({ ahora = new Date(), enviar = false } = {}) {
     const cliente = await candadoCliente(tel, { nombre: lead.Full_Name, email: lead.Email, ahora });
     if (cliente.es) { saltear(`ya es cliente: ${cliente.quien} (${cliente.como})`); await store.set(clave, `cliente: ${cliente.quien}`); continue; }
 
-    const origen = origenDe(lead);
+    const origen = origenApertura(lead);
     const plantilla = plantillaPara(origen, tel, plantillas);
     // Brasil (pt) sin gemela _pt aprobada: no se abre (nunca en español). Sin marca: se reintenta.
     if (!plantilla) { saltear('portugués: sin plantilla _pt aprobada'); continue; }
@@ -352,7 +355,7 @@ export async function previaBarrido(desde, hasta = null, todos = false) {
   for (const lead of viejos) {
     const tel = lead.Mobile || lead.Phone;
     const clave = `apertura-${claveTel(tel) || lead.id}`;
-    const ficha = { nombre: lead.Full_Name, tel, origen: origenDe(lead), creado: lead.Created_Time, estado: lead.Lead_Status, tags: (lead.Tag || []).map((t) => t.name || t) };
+    const ficha = { nombre: lead.Full_Name, tel, origen: origenApertura(lead), creado: lead.Created_Time, estado: lead.Lead_Status, tags: (lead.Tag || []).map((t) => t.name || t) };
     const no = (motivo) => out.saltear.push({ ...ficha, motivo });
     const marca = await store.get(clave);
     if (marca && !/^propuesta/.test(String(marca))) { no('ya tocado por Matías'); continue; }

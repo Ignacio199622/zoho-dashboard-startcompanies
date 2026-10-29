@@ -34,7 +34,9 @@ export const PRECIOS = {
 export const MAX_CARACTERES_TRANSCRIPCION = 60000;
 
 // Solo se analizan llamadas que parezcan de venta o seguimiento.
-export const TITULOS_DE_VENTA = /consulta|asesor|llc|seguimiento|meeting|reuni/i;
+// `administracion startcompanies` y `clientes`: asi entran las de Calendly de clientes
+// ("Fulano y Administracion StartCompanies", "Consulta de Seguimiento – Clientes"), 14-sep-2026.
+export const TITULOS_DE_VENTA = /consulta|asesor|llc|seguimiento|meeting|reuni|administracion startcompanies|clientes/i;
 
 // El Coach usa un filtro mas estricto: los tipos de evento reales de Cal.com.
 // TITULOS_DE_VENTA deja pasar "Impromptu Google Meet Meeting" por la palabra

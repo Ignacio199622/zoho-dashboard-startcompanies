@@ -73,6 +73,13 @@ export async function generar({ modelo, instrucciones, contenido, esquema, maxTo
   const cand = j.candidates?.[0];
   if (!cand) throw new Error(`Gemini sin candidatos: ${JSON.stringify(j).slice(0, 200)}`);
   // MAX_TOKENS deja el JSON cortado a la mitad: es un fallo, no un resultado.
+  // Con los modelos que "piensan" el razonamiento también cuenta contra el tope,
+  // así que un caso largo lo puede vaciar (Deavy, 16-sep: eligió horario y Matías
+  // se cortó justo ahí). Se reintenta UNA vez con el doble antes de rendirse.
+  if (cand.finishReason === 'MAX_TOKENS' && maxTokens < 32000) {
+    console.log(`Gemini MAX_TOKENS con ${maxTokens}: se reintenta con ${maxTokens * 2}`);
+    return generar({ modelo, instrucciones, contenido, esquema, maxTokens: maxTokens * 2 });
+  }
   if (cand.finishReason && cand.finishReason !== 'STOP') {
     throw new Error(`Gemini corto la respuesta: ${cand.finishReason}`);
   }

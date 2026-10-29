@@ -85,6 +85,11 @@ export async function get(path) {
   return j;
 }
 
+// El unico que escribe (frenar.js) necesita el token crudo. Sale del mismo
+// cache que las lecturas, para no pedir un refresh extra: Zoho corta con
+// "too many requests" si se piden varios seguidos.
+export async function tokenActual() { return token(); }
+
 export async function paginado(modulo, campos, extra = '', maxLotes = 200) {
   const out = [];
   let pageToken = null;

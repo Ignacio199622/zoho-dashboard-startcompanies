@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Llamar por WhatsApp</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --tx:#e8eaf0; --mut:#8b93a7; --ok:#25d366; --mal:#ff5c5c; --borde:#2a2f3a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--tx); font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:480px; margin:32px auto; padding:0 16px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p.sub { color:var(--mut); margin:0 0 20px; font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--borde); border-radius:12px; padding:16px; margin-bottom:14px; }
+  label { display:block; font-size:12px; color:var(--mut); margin:0 0 4px; }
+  input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--borde); background:#0c0e12; color:var(--tx); font-size:15px; margin-bottom:12px; }
+  .fila { display:flex; gap:10px; }
+  button { flex:1; padding:12px; border:0; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; }
+  #llamar { background:var(--ok); color:#06210f; }
+  #cortar { background:var(--mal); color:#fff; }
+  button:disabled { opacity:.4; cursor:default; }
+  #estado { font-size:18px; font-weight:600; margin:0 0 8px; }
+  #reloj { font-variant-numeric:tabular-nums; color:var(--mut); }
+  #log { font:12px/1.5 ui-monospace,Consolas,monospace; color:var(--mut); white-space:pre-wrap; max-height:180px; overflow:auto; margin:0; }
+  a.bajar { color:var(--ok); }
+</style>
+</head>
+<body>
+<main>
+  <h1>📞 Llamar por WhatsApp</h1>
+  <p class="sub">Sale desde el +52 con la foto de Daniel. El lead tiene que haber dado permiso.</p>
+
+  <div class="card">
+    <label for="clave">Clave</label>
+    <input id="clave" type="password" autocomplete="off">
+    <label for="numero">Número del lead (con código de país)</label>
+    <input id="numero" inputmode="tel" placeholder="5493814727017">
+    <label for="quien">Quién llama</label>
+    <input id="quien" value="Daniel D.">
+    <div class="fila">
+      <button id="llamar">Llamar</button>
+      <button id="cortar" disabled>Cortar</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <p id="estado">Listo</p>
+    <div id="reloj"></div>
+    <div id="grabacion"></div>
+  </div>
+
+  <div class="card"><pre id="log"></pre></div>
+  <audio id="remoto" autoplay></audio>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const guardado = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+const guardar = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+$('clave').value = guardado('llamar_clave');
+$('quien').value = guardado('llamar_quien') || $('quien').value;
+const q = new URLSearchParams(location.search);
+if (q.get('numero')) $('numero').value = q.get('numero');
+
+const log = (t) => { $('log').textContent = `${new Date().toLocaleTimeString()} ${t}\n` + $('log').textContent; };
+const mostrar = (t) => { $('estado').textContent = t; log(t); };
+
+async function api(cuerpo) {
+  const r = await fetch('/api/llamar', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-clave': $('clave').value }, body: JSON.stringify(cuerpo) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `error ${r.status}`);
+  return j;
+}
+
+let pc, mic, idLlamada, sondeo, grabador, trozos = [], inicio, relojId;
+
+function esperarIce(pc, ms = 3000) {
+  if (pc.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise((ok) => {
+    const t = setTimeout(ok, ms);
+    pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); ok(); } });
+  });
+}
+
+function grabar(remoto) {
+  // Las dos voces juntas (Daniel + lead) en un solo audio.
+  const ctx = new AudioContext();
+  const destino = ctx.createMediaStreamDestination();
+  ctx.createMediaStreamSource(mic).connect(destino);
+  ctx.createMediaStreamSource(remoto).connect(destino);
+  trozos = [];
+  grabador = new MediaRecorder(destino.stream, { mimeType: 'audio/webm;codecs=opus' });
+  grabador.ondataavailable = (e) => e.data.size && trozos.push(e.data);
+  grabador.onstop = () => {
+    const blob = new Blob(trozos, { type: 'audio/webm' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `llamada-${$('numero').value}-${new Date().toISOString().slice(0, 16)}.webm`;
+    a.className = 'bajar';
+    a.textContent = `⬇ Bajar grabación (${Math.round(blob.size / 1024)} KB)`;
+    $('grabacion').replaceChildren(a);
+  };
+  grabador.start(1000);
+}
+
+function reloj() {
+  inicio = Date.now();
+  relojId = setInterval(() => {
+    const s = Math.floor((Date.now() - inicio) / 1000);
+    $('reloj').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  }, 500);
+}
+
+function terminar(texto) {
+  clearInterval(sondeo); clearInterval(relojId);
+  if (grabador && grabador.state !== 'inactive') grabador.stop();
+  if (pc) pc.close();
+  if (mic) mic.getTracks().forEach((t) => t.stop());
+  pc = mic = null;
+  $('llamar').disabled = false; $('cortar').disabled = true;
+  if (texto) mostrar(texto);
+}
+
+$('llamar').onclick = async () => {
+  guardar('llamar_clave', $('clave').value); guardar('llamar_quien', $('quien').value);
+  const numero = $('numero').value.replace(/\D/g, '');
+  if (!numero) return mostrar('Falta el número');
+  $('llamar').disabled = true; $('cortar').disabled = false; $('grabacion').textContent = ''; $('reloj').textContent = '';
+  try {
+    mostrar('Pidiendo micrófono…');
+    mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    mic.getTracks().forEach((t) => pc.addTrack(t, mic));
+    pc.ontrack = (e) => { $('remoto').srcObject = e.streams[0]; grabar(e.streams[0]); };
+    pc.onconnectionstatechange = () => log(`conexión: ${pc && pc.connectionState}`);
+    await pc.setLocalDescription(await pc.createOffer());
+    await esperarIce(pc);
+    mostrar('Llamando…');
+    const { id } = await api({ accion: 'iniciar', numero, sdp: pc.localDescription.sdp, quien: $('quien').value });
+    idLlamada = id; log(`id ${id}`);
+    let aplicada = false, vistos = 0;
+    sondeo = setInterval(async () => {
+      try {
+        const e = await api({ accion: 'estado', id: idLlamada });
+        if (e.respuesta && !aplicada && pc) {
+          aplicada = true;
+          await pc.setRemoteDescription({ type: 'answer', sdp: e.respuesta });
+          log('respuesta de Meta aplicada');
+        }
+        const est = e.estados || [];
+        for (const x of est.slice(vistos)) {
+          if (x.estado === 'RINGING') mostrar('Sonando…');
+          if (x.estado === 'ACCEPTED') { mostrar('En llamada'); reloj(); }
+          if (x.estado === 'REJECTED') mostrar('Rechazó la llamada');
+        }
+        vistos = est.length;
+        if (e.fin) terminar(e.fin.duracion ? `Terminó · ${e.fin.duracion} s` : `Terminó sin atender${e.fin.error ? ' · ' + e.fin.error : ''}`);
+      } catch (err) { log(err.message); }
+    }, 800);
+  } catch (err) {
+    terminar(err.message);
+  }
+};
+
+$('cortar').onclick = async () => {
+  try { if (idLlamada) await api({ accion: 'cortar', id: idLlamada }); } catch (err) { log(err.message); }
+  terminar('Cortaste');
+};
+</script>
+</body>
+</html>

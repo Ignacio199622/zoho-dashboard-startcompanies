@@ -161,4 +161,4 @@ export const webhookDe = (equipo) => WEBHOOK_POR_EQUIPO[equipo] || SLACK_WEBHOOK
 
 export const HAY_SLACK = Boolean(SLACK_WEBHOOK_URL || Object.values(WEBHOOK_POR_EQUIPO).some(Boolean));
 
-export const ZOHO_UI = 'https://crm.zoho.com/crm/org878580932/tab';
+export const ZOHO_UI = 'https://crm.zoho.com/crm/org881745849/tab';

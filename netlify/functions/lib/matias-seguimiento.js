@@ -26,7 +26,7 @@ import { env } from './entorno.js';
 import { get } from './conversaciones/zoho.js';
 import { mandarANoShow } from './conversaciones/escritura.js';
 import { LINEAS, lineaDe, mandar, plantilla as armarPlantilla, registrar, enHilo, enviarTexto, fusible, cupoCuidado, repite } from './matias.js';
-import { PLANTILLAS, paisDe, proponer, nombreDe, plantillaPara, textoDe } from './matias-cerebro.js';
+import { PLANTILLAS, origenPara, paisDe, proponer, nombreDe, plantillaPara, textoDe } from './matias-cerebro.js';
 import { aplicarAccion, contextoDeHoy, ofrecer } from './matias-agenda.js';
 import * as voz from './matias-voz.js';
 import { esHoraDeAbrir, estadoPlantillas } from './matias-apertura.js';
@@ -238,7 +238,7 @@ export async function pasadaSeguimientos({ ahora = new Date(), enviar = false } 
         // (reservar es solo cuando el lead acaba de elegir uno).
         if (p.accion?.tipo === 'ofrecer_horarios') {
           try {
-            const ag = await aplicarAccion({ p, origen: estado.origen, lead, numero: tel, estado, ahora });
+            const ag = await aplicarAccion({ p, origen: origenPara(lead, estado), lead, numero: tel, estado, ahora });
             texto = ag.texto;
             if (ag.ofrecidos?.length) estado.ofrecidos = ag.ofrecidos;
           } catch (e) { await enHilo(tel, `⚠️ La agenda falló en el seguimiento (${e.message}); va el texto pelado.`); }
@@ -269,7 +269,7 @@ export async function pasadaSeguimientos({ ahora = new Date(), enviar = false } 
         const plantilla = plantillaPara('horarios', tel, estados);
         if (!plantilla) { resumen.salteados.push(`${tel}: portugués sin plantilla _pt aprobada`); continue; } // Brasil: nunca en español
         if (enviar && estados[plantilla] !== 'APPROVED') { resumen.salteados.push(`${tel}: plantilla ${plantilla} sin aprobar`); continue; }
-        const of = await ofrecer({ origen: estado.origen || 'meta', numero: `+${tel}`, dia: '', franja: '', ahora });
+        const of = await ofrecer({ origen: origenPara(lead, estado), numero: `+${tel}`, dia: '', franja: '', ahora });
         if (!of.opciones.length) { resumen.salteados.push(`${tel}: sin horarios para ofrecer`); continue; }
         texto = textoDe('horarios', plantilla, nombre, of.frase);
         if (enviar) await enviarPlantillaHorarios(tel, nombre, of.frase, plantilla);

@@ -26,6 +26,41 @@ export const RESPONSABLES = {
   'meta-sin-contactar': 'Nacho Campo',
   // Misma persona que las cadencias vencidas: es el mismo motor.
   'mensajes-que-no-salieron': 'Benjamin',
+  // Agregada el 13-sep-2026: WhatsApp oculta el numero y la cadencia no llega.
+  // Se resuelve contestando en el chat, asi que va a quien atiende WhatsApp.
+  'whatsapp-sin-numero': 'Nacho Campo',
+  // Las renovaciones y la ficha de la LLC son de Pablo.
+  'renovacion-desfasada': 'Pablo',
+  // El puente CRM -> pixel de Meta, agregado el 5-sep-2026.
+  // El mapeo de la conversion Posible cliente -> Trato lo toca Benjamin.
+  'puente-trato-sin-id': 'Benjamin',
+  // La fila que falta en las cadenas de Lead Chain la toca Adrian.
+  'puente-meta-sin-tipo': 'Adrian',
+  // Estos dos son de decision, no de carga: van a Ignacio.
+  'puente-senal-sin-id': 'Ignacio',
+  'puente-sin-senal': 'Ignacio',
+  // Agregada el 7-sep-2026. Va a Pablo porque el dato de origen es el lookup
+  // `Socio` de la LLC, y la ficha de la LLC ya es suya (llc-sin-propietario,
+  // estructura, renovacion-desfasada). Se arregla corriendo dos scripts:
+  //   crm/auditoria/canal-partners.js --aplicar
+  //   crm/auditoria/partner-en-trato.js --aplicar
+  'trato-partner-sin-marcar': 'Pablo',
+  // Agregada el 9-sep-2026. Es el parte de las ventas nuevas: quien las carga es
+  // quien puede completar lo que falta en el momento, no dos semanas despues.
+  'tratos-nuevos': 'Pablo',
+  // Agregada el 12-sep-2026 por el caso Bernabei/Petruccelli: un lead renombrado y
+  // fusionado en la ficha de otro desde la cuenta compartida. Es de decision (quien
+  // usa esa cuenta y por que), no de carga: va a Ignacio.
+  'fusion-sospechosa': 'Ignacio',
+  // Agregada el 30-sep-2026 por el caso FUTURE LABS: leads convertidos dentro de la
+  // LLC de otro cliente. Es de carga de ventas, al convertir: Nacho Campo.
+  'reuniones-en-llc-ajena': 'Nacho Campo',
+  // Agregadas el 13-sep-2026: que posible cliente anda sin retargeting y por que.
+  // Si el flujo no arranco o se corto, es la automatizacion de Zoho: Adrian.
+  'sin-retargeting-flujo': 'Adrian',
+  // Si esta en un estado sin cadencia (En Calificacion, Reunion Agendada pasada,
+  // baja a mano), alguien de ventas lo tiene que mover: Nacho.
+  'sin-retargeting-estado': 'Nacho Campo',
 };
 
 // El que recibe lo que no tiene responsable asignado.

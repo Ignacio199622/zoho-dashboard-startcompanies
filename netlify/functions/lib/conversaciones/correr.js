@@ -5,6 +5,7 @@ import { clasificar } from './clasificar.js';
 import { enviar, enviarResumenTope, avisarVentaAbierta, avisarVentaCerrada } from './slack.js';
 import * as estadoFs from './estado.js';
 import * as aprendizaje from './aprendizaje.js';
+import { votar, esperarVeredicto, podarVeredictos } from './confirmacion.js';
 import * as seguimiento from './seguimiento.js';
 import * as salientes from './salientes.js';
 import {
@@ -19,6 +20,11 @@ import {
 // `registrar` avanza el corte y marca lo ya visto, aunque no se haya avisado.
 //             Es lo que permite que la Fase 0 corra sola sin repetir cada caso
 //             en cada pasada.
+// Cuantos votos del cliente se guardan. Con 200 alcanza de sobra: `crecer()`
+// pide 3 confirmaciones distintas para crear una entrada, y los viejos dejan de
+// representar como contesta hoy el equipo.
+const MAX_VOTOS = 200;
+
 export async function unaPasada({
   avisar = HAY_SLACK,
   registrar = avisar,
@@ -39,7 +45,24 @@ export async function unaPasada({
 
   // Antes de cualquier otra cosa: de las que estabamos siguiendo, cuales ya
   // contesto alguien del equipo. Ese par es el material de aprendizaje.
-  const aprendidos = aprendizaje.capturar(conversaciones, estado, ahora);
+  // ─── EL TERCER MENSAJE ───────────────────────────────────────────────────
+  //
+  // Un par (pregunta -> respuesta del equipo) no prueba nada por si solo: puede
+  // ser una respuesta mala que el cliente no entendio. Lo que lo convierte en
+  // una leccion es el mensaje siguiente del cliente: "listo, entendi".
+  //
+  // Se vota ANTES de capturar los pares nuevos: lo que se vota en esta pasada
+  // son los pares que quedaron esperando en las pasadas anteriores.
+  const veredictos = votar(conversaciones, estado, {
+    guardarVoto: (v) => {
+      estado.votos = [...(estado.votos || []), v].slice(-MAX_VOTOS);
+    },
+  });
+
+  const aprendidos = aprendizaje.capturar(conversaciones, estado, ahora, {
+    alGuardar: (par, conv) => esperarVeredicto(estado, par, conv),
+  });
+  podarVeredictos(estado);
 
   // Filtro sin costo: solo las que estan esperando al equipo.
   const esperando = pendientes(conversaciones, ahora);
@@ -162,6 +185,7 @@ export async function unaPasada({
     costo,
     avisado: avisar,
     aprendidos,
+    veredictos,
     ejemplosEnUso: aprendizaje.ejemplos().length,
     ventasCerradas: cerradas,
     ventasInsistidas: aInsistir,

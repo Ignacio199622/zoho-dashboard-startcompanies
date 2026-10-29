@@ -39,6 +39,17 @@ export default async (req) => {
   }
 };
 
-// 16:30 de Argentina, todos los dias. Argentina no cambia de hora, asi que UTC-3 es fijo y el cron no se
-// corre solo en marzo ni en octubre.
-export const config = { schedule: '30 19 * * *' };
+/*
+ * 16:30 de Argentina, LUNES A VIERNES. Argentina no cambia de hora, asi que
+ * UTC-3 es fijo y el cron no se corre solo en marzo ni en octubre.
+ *
+ * Salia todos los dias hasta el 5-sep-2026. Ese sabado a las 16:30 el canal
+ * recibio "se desviaron 89 cosas hoy, se pueden arreglar antes de irse" sin que
+ * hubiera nadie trabajando: un mensaje urgente dirigido a una oficina vacia es
+ * exactamente lo que hace que el equipo silencie el canal.
+ *
+ * No se pierde nada del fin de semana: la foto anterior (`ultima-foto`) la fija
+ * SOLO el cierre, asi que el lunes compara contra la del viernes y reporta todo
+ * lo que se acumulo. Por eso el mensaje dice "desde el viernes" y no "hoy".
+ */
+export const config = { schedule: '30 19 * * 1-5' };

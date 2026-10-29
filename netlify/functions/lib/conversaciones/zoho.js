@@ -11,11 +11,62 @@ const API = 'https://www.zohoapis.com/crm/v6';
 
 let cacheToken = null;
 
-// Exportado para `escritura.js`, que necesita el mismo token pero hace PUT.
-// Pedir el token no es escribir: la separacion sigue siendo el archivo que
-// tiene los PUT, no el que tiene las credenciales.
-export async function token() {
-  if (cacheToken && Date.now() < cacheToken.venceEn) return cacheToken.valor;
+// ─── EL TOKEN ES COMPARTIDO, Y ESO IMPORTA ─────────────────────────────────
+//
+// Todos los agentes usan el mismo refresh token, y Zoho limita cuantos access
+// tokens se pueden pedir seguidos. Cachear por proceso no alcanza: cada arranque
+// en frio de una funcion de Netlify es un proceso nuevo que pide el suyo. Con
+// siete agentes andando se llega al tope, y ahi Zoho contesta:
+//
+//   "You have made too many requests continuously. Please try again after some time."
+//
+// Cuando eso pasa se caen TODOS los agentes a la vez, no el que lo gatillo.
+// Paso el 9-sep-2026 y tumbo la guardia de fuera de horario, que no tenia nada
+// que ver. Por eso el token se guarda en un almacen compartido y los procesos se
+// lo prestan: se pide uno cada 50 minutos entre todos, no uno por arranque.
+//
+// Afuera de Netlify (scripts a mano) no hay almacen y no pasa nada: se cae al
+// cache por proceso, que es como funcionaba antes.
+let almacen;
+
+async function almacenCompartido() {
+  if (almacen !== undefined) return almacen;
+  almacen = null;
+  try {
+    const { getStore } = await import('@netlify/blobs');
+    almacen = getStore({ name: 'zoho-token', consistency: 'strong' });
+  } catch {
+    // Ni la libreria ni el entorno de Netlify. Es lo normal corriendo local.
+    almacen = null;
+  }
+  return almacen;
+}
+
+// 50 y no 55: el token dura una hora, y el margen evita que dos agentes se
+// pasen uno que esta por vencer justo mientras lo usan.
+const DURACION_TOKEN = 50 * 60 * 1000;
+
+// Cuando Zoho corta por exceso de pedidos, insistir lo empeora: cada intento cuenta como
+// "continuo" y el corte no se levanta nunca (17-sep: 5 horas con todos los agentes muertos,
+// Matías incluido). Al primer corte se anota una pausa compartida y nadie vuelve a pedir
+// token hasta que pase.
+const PAUSA_TRAS_CORTE = 12 * 60 * 1000;
+
+async function pausaVigente(store) {
+  if (!store) return null;
+  try {
+    const p = await store.get('pausa', { type: 'json' });
+    if (p?.hasta && Date.now() < p.hasta) return p;
+  } catch {}
+  return null;
+}
+
+async function pedirTokenNuevo(store) {
+  const pausa = await pausaVigente(store);
+  if (pausa) {
+    const min = Math.ceil((pausa.hasta - Date.now()) / 60000);
+    throw new Error(`Zoho cortó el pedido de token por exceso de llamadas; hay una pausa compartida de ${min} min para que se destrabe. Ningún agente pide token hasta entonces.`);
+  }
   const params = new URLSearchParams({
     refresh_token: env.ZOHO_REFRESH_TOKEN,
     client_id: env.ZOHO_CLIENT_ID,
@@ -24,16 +75,72 @@ export async function token() {
   });
   const r = await fetch(`https://accounts.zoho.com/oauth/v2/token?${params}`, { method: 'POST' });
   const j = await r.json();
-  if (!j.access_token) throw new Error(`Zoho no devolvio token: ${JSON.stringify(j)}`);
-  cacheToken = { valor: j.access_token, venceEn: Date.now() + 55 * 60 * 1000 };
-  return j.access_token;
+  if (j.access_token) return j.access_token;
+  // El limite se dice con todas las letras: es pasajero y se destraba solo, y
+  // conviene que quien lea el log no salga a buscar el bug en otro lado.
+  if (/too many requests/i.test(j.error_description || '')) {
+    if (store) {
+      try { await store.setJSON('pausa', { hasta: Date.now() + PAUSA_TRAS_CORTE, desde: new Date().toISOString() }); } catch {}
+    }
+    throw new Error(
+      'Zoho bloqueo el pedido de token por exceso de llamadas. Se destraba solo en unos ' +
+      'minutos. Ojo: mientras dura, TODOS los agentes fallan, no solo este.'
+    );
+  }
+  throw new Error(`Zoho no devolvio token: ${JSON.stringify(j)}`);
 }
 
-export async function get(path, cabeceras = {}) {
+// Exportado para `escritura.js`, que necesita el mismo token pero hace PUT.
+// Pedir el token no es escribir: la separacion sigue siendo el archivo que
+// tiene los PUT, no el que tiene las credenciales.
+export async function token() {
+  if (cacheToken && Date.now() < cacheToken.venceEn) return cacheToken.valor;
+
+  const store = await almacenCompartido();
+  if (store) {
+    try {
+      const guardado = await store.get('actual', { type: 'json' });
+      if (guardado?.valor && Date.now() < guardado.venceEn) {
+        cacheToken = guardado;
+        return guardado.valor;
+      }
+    } catch {
+      // Leer el almacen no puede romper el acceso al CRM: se pide uno nuevo.
+    }
+  }
+
+  const valor = await pedirTokenNuevo(store);
+  cacheToken = { valor, venceEn: Date.now() + DURACION_TOKEN };
+  if (store) {
+    try { await store.setJSON('actual', cacheToken); } catch {}
+  }
+  return valor;
+}
+
+/**
+ * Tira el token guardado. Se llama cuando Zoho contesta 401: si el compartido
+ * quedo viejo o lo revocaron, sin esto TODOS los agentes lo siguen leyendo del
+ * almacen y fallan igual hasta que venza.
+ */
+export async function invalidarToken() {
+  cacheToken = null;
+  const store = await almacenCompartido();
+  if (store) {
+    try { await store.delete('actual'); } catch {}
+  }
+}
+
+export async function get(path, cabeceras = {}, reintento = false) {
   const t = await token();
   const r = await fetch(`${API}/${path}`, {
     headers: { Authorization: `Zoho-oauthtoken ${t}`, ...cabeceras },
   });
+  // 401 = el token no sirve. Puede ser uno viejo que quedo en el almacen
+  // compartido: se tira y se pide uno nuevo, una sola vez.
+  if (r.status === 401 && !reintento) {
+    await invalidarToken();
+    return get(path, cabeceras, true);
+  }
   // 204 = sin resultados, 304 = nada cambio desde If-Modified-Since.
   if (r.status === 204 || r.status === 304) return { data: [], info: {} };
   const txt = await r.text();
@@ -103,7 +210,7 @@ export async function todasLasConversaciones({ alAvanzar } = {}) {
 
 const CAMPOS_POR_MODULO = {
   Contacts: 'id,Full_Name,Phone,Mobile,Email,Owner',
-  Leads: 'id,Full_Name,Phone,Mobile,Email,Owner,Lead_Status,Lead_Source',
+  Leads: 'id,Full_Name,Phone,Mobile,Email,Owner,Lead_Status,Lead_Source,Tag,Calendario,Landing_Origen,Tipo', // Tag..Tipo: el link de agenda de Lili/partners (respuestas.js)
 };
 
 /**

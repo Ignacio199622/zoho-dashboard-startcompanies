@@ -39,6 +39,14 @@ export const LISTA_BLANCA = new Set([
   // Brasil (14-oct-2026): el boton de las plantillas en portugues manda "Não tenho
   // interesse" (normalizado sin tilde: "nao tenho interesse"). Mismo carril.
   'nao tenho interesse',
+  // El boton del masivo de referidos manda "No me interesa SC". Medido el
+  // 10-sep-2026: 7 de los 11 "no me interesa" de la semana venian con la
+  // coletilla y ninguno entraba por aca. Ignacio: se tratan igual.
+  'no me interesa sc',
+  // El boton de las plantillas nuevas de Lili (`lili_retargeting_dia_*_v2`,
+  // 11-sep-2026) manda "No interesado". Es el mismo carril: boton de respuesta
+  // rapida, texto fijo, sin ambiguedad. Ver [[project_zoho_retargeting_flows]].
+  'no interesado',
 ]);
 
 /** minusculas, sin tildes, sin puntuacion ni emojis, espacios colapsados. */
@@ -109,7 +117,23 @@ export async function decidir(lead) {
   if (ESTADOS_YA_FUERA.includes(lead.Lead_Status)) {
     return { accion: 'ya_estaba', motivo: `ya esta en ${lead.Lead_Status}` };
   }
-  const transiciones = await transicionesDe(lead.id);
+  // Un lead fuera del blueprint (Reunión Agendada, por ejemplo) hace que Zoho
+  // conteste RECORD_NOT_IN_PROCESS en vez de una lista vacia. Si eso se deja
+  // tirar, se cae la pasada entera y las demas bajas de la ventana quedan sin
+  // procesar, cada 15 minutos, hasta que alguien toque ese lead a mano.
+  // Paso el 11-sep-2026 con Josue Ariztimuño: 3 alertas seguidas por el mismo
+  // id y 4 bajas mas frenadas atras.
+  let transiciones;
+  try {
+    transiciones = await transicionesDe(lead.id);
+  } catch (e) {
+    if (!/RECORD_NOT_IN_PROCESS/.test(e.message)) throw e;
+    return {
+      accion: 'revisar',
+      motivo: `no esta en el blueprint (estado "${lead.Lead_Status}"): la baja va a mano`,
+      disponibles: [],
+    };
+  }
   const t = buscarTransicionBaja(transiciones);
   if (!t) {
     return {

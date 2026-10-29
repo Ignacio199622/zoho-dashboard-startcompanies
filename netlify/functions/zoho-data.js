@@ -225,13 +225,26 @@ function fmtDate(iso) {
 
 // Resolve the latest meeting state for a lead from its related Events.
 // Event.Status_del_Meet: Asistió | No asistió | Reagendar | Asistió sin interes | (empty)
+// Una reunión que Cal cerró al reagendar o cancelar queda con el título
+// "[REAGENDADA] ..." / "[CANCELADA] ..." y el Status vacío: el blueprint de
+// Reuniones no deja poner "Reagendar" a una reunión sin estado (sólo Asistió /
+// No asistió / Asistió sin interés), así que el título es la única marca.
+// Sin leerlo, cada reagenda contaba como una reunión más "sin resultado".
+const CERRADA_POR_TITULO = /^\[(CANCELADA|REAGENDADA)\]/;
+function cerradaPorTitulo(ev) {
+  const m = CERRADA_POR_TITULO.exec(ev.Event_Title || '');
+  return m ? (m[1] === 'CANCELADA' ? 'Cancelada' : 'Reagendó') : null;
+}
+
 function meetingState(events) {
   if (!events || !events.length) return 'Sin meeting';
   const withStatus = events.filter(e => e.Status_del_Meet);
-  const pool = withStatus.length ? withStatus : events;
+  const abiertas = events.filter(e => !cerradaPorTitulo(e));
+  const pool = withStatus.length ? withStatus : (abiertas.length ? abiertas : events);
   const chosen = pool.slice().sort((a, b) =>
     new Date(b.Start_DateTime || b.Created_Time) - new Date(a.Start_DateTime || a.Created_Time))[0];
   const st = chosen.Status_del_Meet;
+  if (!st && cerradaPorTitulo(chosen)) return 'Reagendó';
   if (st === 'No asistió') return 'No Asistió';
   if (st === 'Reagendar') return 'Reagendó';
   if (st === 'Asistió' || st === 'Asistió sin interes') return 'Asistió';
@@ -349,15 +362,29 @@ function canalDeCalendario(titulo) {
 // Devuelve de dónde vino el lead y con qué grado de certeza, en este orden:
 // lo que ya cargó Zoho > el path de la landing > el calendario de la PRIMERA
 // llamada > la fuente cuando ya nombra un canal.
+// Los canales finales de la normalización del 18-sep-2026. Si `Lead_Source` trae uno de
+// estos, es el dato cargado y no se deduce nada más.
+const CANALES_FINALES = new Set(['Meta Ads', 'Google Ads', 'YouTube Ads', 'YouTube Orgánico', 'Reddit Ads', 'SEO / Web Orgánica', 'SEO Satélite', 'Marca Personal', 'Referido', 'Partner', 'Cliente actual', 'Email Marketing', 'WhatsApp (no sabemos)', 'Sin origen de fuente']);
+
 function atribuir(lead, primerEvento) {
-  const path = limpiarPath(lead.Calendario);
+  // 18-sep-2026 (normalización de origen): cada campo guarda lo que dice su nombre.
+  //   Lead_Source = canal · Landing_Origen = página o formulario · Calendario = calendario de Cal.
+  // Los leads viejos que todavía no pasaron por el backfill caen en la cascada de abajo.
+  const landingNueva = lead.Landing_Origen && !CANALES_FINALES.has(lead.Landing_Origen) && lead.Landing_Origen !== 'A clasificar'
+    && !FUENTE_ES_CANAL[lead.Landing_Origen] && !/^(Web Organic \/ SEO|Reddit|Relay \/ Banco|Evento \/ AI|Google Ads|YouTube Ads)$/.test(lead.Landing_Origen)
+    ? limpiarPath(lead.Landing_Origen) : '';
+  const path = landingNueva || limpiarPath(lead.Calendario);
   const titulo = limpiarTitulo(primerEvento && primerEvento.Event_Title);
-  // La landing siempre es lo más concreto que haya: el path si existe, si no el
+  // La landing siempre es lo más concreto que haya: la página si existe, si no el
   // calendario con el que agendó. Nunca el nombre del canal, que ya va aparte.
   const landing = path || titulo || '';
 
+  if (CANALES_FINALES.has(lead.Lead_Source)) {
+    return { canal: lead.Lead_Source, landing, origen: 'Zoho', seguro: true };
+  }
+
   const zoho = lead.Landing_Origen;
-  if (zoho && zoho !== 'A clasificar') {
+  if (zoho && zoho !== 'A clasificar' && !landingNueva) {
     return { canal: zoho, landing, origen: 'Zoho', seguro: true };
   }
 
@@ -762,7 +789,7 @@ function idDelEvento(ev) {
 
 function estadoReunion(ev) {
   const st = ev.Status_del_Meet;
-  if (!st) return 'Sin resultado';
+  if (!st) return cerradaPorTitulo(ev) || 'Sin resultado';
   if (st === 'No asistió') return 'No asistió';
   if (st === 'Reagendar') return 'Reagendó';
   if (st === 'Asistió sin interes') return 'Asistió sin interés';

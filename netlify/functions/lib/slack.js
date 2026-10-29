@@ -10,7 +10,7 @@ import { linkWhatsApp } from './telefono.js';
 
 export const CANAL = env.SLACK_CANAL || '#calls-startcompanies';
 export const HAY_SLACK = Boolean(env.SLACK_BOT_TOKEN);
-export const ZOHO_UI = 'https://crm.zoho.com/crm/org878580932/tab';
+export const ZOHO_UI = 'https://crm.zoho.com/crm/org881745849/tab';
 
 const ICONO = { si: '✅', parcial: '⚠️', no: '❌', no_aplica: '➖' };
 

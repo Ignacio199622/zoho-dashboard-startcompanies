@@ -35,6 +35,7 @@ import { avisarFalla } from './lib/aviso-falla.js';
 import * as hilo from './lib/hilo.js';
 import { registrarPregunta } from './lib/marcos-aprende.js';
 import * as matias from './lib/matias.js';
+import * as llamadas from './lib/llamadas.js';
 import * as controlContacto from './lib/control-contacto.js';
 import { despedidaDe, esSondeo, avisoSeguridad } from './lib/matias-cerebro.js';
 // Cualquier forma de "no me interesa" cierra la ficha con despedida (los "basta" y
@@ -42,7 +43,7 @@ import { despedidaDe, esSondeo, avisoSeguridad } from './lib/matias-cerebro.js';
 const DICE_NO = /\b(no (me|le|nos) interesa|no estoy interesad|ya no (me )?interesa|fue un error|n[aã]o tenho interesse)\b/i;
 import { candadoCliente } from './lib/matias-cliente.js';
 import * as portal from './lib/portal.js';
-import { proponer, origenDe, LINKS, registroDe, TEXTOS, textoDe, nombreDe } from './lib/matias-cerebro.js';
+import { proponer, origenDe, origenPara, LINKS, registroDe, TEXTOS, textoDe, nombreDe } from './lib/matias-cerebro.js';
 import { aplicarAccion, contextoDeHoy, describir, mailEn } from './lib/matias-agenda.js';
 
 const ENVIAR = process.env.RESPUESTAS_ENVIAR === '1';
@@ -170,7 +171,7 @@ export async function responderComoMatias(m, lead, ahora) {
     if (!(await matias.esMiTurno(m.de, m.id))) { console.log('matias no contesta: otro mensaje del lead tomó el turno'); return; }
     if (!descarta && p.accion?.tipo !== 'ninguna') {
       try {
-        const origen = origenDe(lead);
+        const origen = origenPara(lead, estado);
         // Antes de mirar la agenda, avisa que la está mirando (Ignacio, 18-sep: "muy
         // humano"): una burbuja corta, y unos segundos después los horarios.
         if (MATIAS_ENVIA && p.accion.tipo === 'ofrecer_horarios') {
@@ -192,7 +193,7 @@ export async function responderComoMatias(m, lead, ahora) {
       } catch (e) {
         console.error('agenda fallo:', e.message);
         await matias.enHilo(m.de, `⚠️ La agenda falló (${e.message}); Matías vuelve al link.`).catch(() => {});
-        texto = `${p.texto || 'Dale.'} ${registroDe(m.de) === 'vos' ? 'Podés' : 'Puedes'} elegir el horario acá: ${LINKS[origenDe(lead)]}`;
+        texto = `${p.texto || 'Dale.'} ${registroDe(m.de) === 'vos' ? 'Podés' : 'Puedes'} elegir el horario acá: ${LINKS[origenPara(lead, estado)]}`;
       }
     }
     if (!texto) { await matias.enHilo(m.de, '🛑 Matías no contesta: _el cerebro devolvió texto vacío_'); return; }
@@ -253,6 +254,14 @@ async function procesar(req) {
     cuerpo = await req.json();
   } catch {
     return new Response('cuerpo ilegible', { status: 200 });
+  }
+
+  // Llamadas de Daniel por WhatsApp (campo `calls`): la respuesta SDP y los
+  // estados quedan en el blob de la llamada, que lee la pantalla de llamar.
+  const deLlamadas = llamadas.eventosDeLlamadas(cuerpo);
+  if (deLlamadas.length) {
+    await llamadas.guardarEventos(deLlamadas);
+    return new Response('llamada', { status: 200 });
   }
 
   // Los acuses de Meta (entregado, leído, fallado) del +52 van a la ficha del

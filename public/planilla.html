@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planilla Start Companies</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ink:#0F1622; --ink-2:#3C4655; --ink-3:#6B7585;
+  --paper:#F4F6F8; --surface:#FFFFFF; --surface-2:#FAFBFC;
+  --line:#DCE1E8; --line-soft:#EAEEF3;
+  --accent:#1B4DFF; --accent-soft:#E8EDFF;
+  --ok:#0B7A55; --ok-bg:#E1F3EC;
+  --falta:#BE3227; --falta-bg:#FBE9E7;
+  --nc:#7C8798; --nc-bg:#EDF0F4;
+  --pend:#9A6300; --pend-bg:#FBF0DC;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --ink:#E7EBF1; --ink-2:#AAB4C2; --ink-3:#7C8697;
+  --paper:#0C111A; --surface:#131A25; --surface-2:#171F2B;
+  --line:#252F3E; --line-soft:#1D2633;
+  --accent:#7B96FF; --accent-soft:#1B2540;
+  --ok:#4FCC9C; --ok-bg:#12301F;
+  --falta:#FF8078; --falta-bg:#341A19;
+  --nc:#8791A2; --nc-bg:#1D2532;
+  --pend:#E0A63C; --pend-bg:#33270F;
+  color-scheme:dark;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+
+/* login */
+#login{min-height:100vh;display:grid;place-items:center;padding:24px}
+#login form{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:30px;width:100%;max-width:360px;display:flex;flex-direction:column;gap:14px}
+#login h1{margin:0;font-size:18px;letter-spacing:-.015em}
+#login p{margin:0;color:var(--ink-3);font-size:12.5px}
+#login input{font:inherit;padding:9px 11px;border:1px solid var(--line);border-radius:6px;
+  background:var(--surface);color:var(--ink)}
+#login button{font:inherit;font-weight:600;padding:9px;border:0;border-radius:6px;
+  background:var(--accent);color:#fff;cursor:pointer}
+#login .err{color:var(--falta);font-size:12.5px;min-height:1em}
+
+/* cabecera */
+header{background:var(--surface);border-bottom:1px solid var(--line);padding:18px 22px 0;position:sticky;top:0;z-index:30}
+.marca{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+h1.t{font-size:18px;font-weight:700;letter-spacing:-.015em;margin:0}
+.sub{color:var(--ink-3);font-size:12.5px}
+.sello{margin-left:auto;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:600;
+  color:var(--accent);background:var(--accent-soft);padding:4px 9px;border-radius:3px}
+.rail{display:flex;gap:2px;overflow-x:auto}
+.rail button{appearance:none;background:none;border:0;border-bottom:2px solid transparent;font:inherit;
+  color:var(--ink-3);cursor:pointer;white-space:nowrap;padding:9px 13px 11px;display:flex;align-items:center;gap:8px}
+.rail button:hover{color:var(--ink)}
+.rail button .n{font-family:"IBM Plex Mono",monospace;font-size:11px;background:var(--surface-2);
+  border:1px solid var(--line-soft);padding:1px 5px;border-radius:3px;color:var(--ink-3)}
+.rail button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+.rail button[aria-selected="true"] .n{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+
+.aviso{padding:10px 22px;background:var(--pend-bg);color:var(--pend);font-size:12.5px;
+  border-bottom:1px solid var(--line)}
+.aviso b{font-weight:700}
+
+.barra{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 22px;
+  border-bottom:1px solid var(--line);background:var(--surface)}
+input[type=search],select.filtro{font:inherit;font-size:13px;color:var(--ink);background:var(--surface);
+  border:1px solid var(--line);border-radius:5px;padding:6px 9px;height:32px}
+input[type=search]{flex:1 1 220px;max-width:300px}
+select.filtro{cursor:pointer;max-width:180px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;border:1px solid var(--line);
+  border-radius:5px;padding:6px 10px;height:32px;color:var(--ink-2);user-select:none;background:var(--surface)}
+.chk:has(input:checked){border-color:var(--accent);color:var(--accent);background:var(--accent-soft);font-weight:600}
+.btn{font:inherit;font-size:12.5px;font-weight:600;height:32px;padding:0 12px;border:1px solid var(--line);
+  border-radius:5px;background:var(--surface);color:var(--ink-2);cursor:pointer}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.conteo{margin-left:auto;font-size:12px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+.conteo b{color:var(--ink);font-weight:600}
+
+.carriles{display:flex;flex-wrap:wrap;padding:0 22px;background:var(--surface);border-bottom:1px solid var(--line)}
+.carril{padding:11px 20px 12px;border-right:1px solid var(--line-soft);min-width:130px;
+  display:flex;flex-direction:column;gap:5px}
+.carril:first-child{padding-left:0}
+.carril .t{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.carril .v{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.carril .v span{font-size:11.5px;color:var(--ink-3);font-weight:400}
+.medidor{height:3px;border-radius:2px;background:var(--line-soft);overflow:hidden}
+.medidor i{display:block;height:100%;background:var(--ok)}
+
+.hoja{overflow:auto;max-height:calc(100vh - 290px);background:var(--surface)}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
+thead th{position:sticky;top:0;z-index:12;background:var(--surface-2);border-bottom:1px solid var(--line);
+  text-align:left;white-space:nowrap;font-size:10px;letter-spacing:.075em;text-transform:uppercase;
+  font-weight:600;color:var(--ink-3);padding:8px 10px;cursor:pointer;user-select:none}
+thead th.grupo{text-align:center;border-left:1px solid var(--line);color:var(--accent)}
+tbody td{border-bottom:1px solid var(--line-soft);padding:5px 10px;white-space:nowrap}
+tbody tr:hover td{background:var(--surface-2)}
+th.fija,td.fija{position:sticky;left:0;z-index:10;background:var(--surface);border-right:1px solid var(--line);
+  font-weight:600;max-width:230px;overflow:hidden;text-overflow:ellipsis}
+thead th.fija{z-index:14;background:var(--surface-2)}
+tbody tr:hover td.fija{background:var(--surface-2)}
+td.num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+td.tenue{color:var(--ink-3);max-width:190px;overflow:hidden;text-overflow:ellipsis}
+td.celda-edit{text-align:center;border-left:1px solid var(--line-soft);padding:4px}
+.estado-tag{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;border:1px solid var(--line);
+  border-radius:3px;padding:1px 5px;color:var(--ink-2)}
+
+/* celda editable: se ve como pastilla, es un select */
+.p{display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600;
+  padding:2px 7px;border-radius:3px;min-width:26px}
+select.p{appearance:none;font-family:inherit;border:1px solid transparent;cursor:pointer;
+  padding:2px 6px;height:22px;text-align:center;text-align-last:center}
+select.p:hover{border-color:var(--line)}
+select.p:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+select.p:disabled{cursor:default;opacity:1}
+.p-ok{background:var(--ok-bg);color:var(--ok)}
+.p-falta{background:var(--falta-bg);color:var(--falta)}
+.p-nc{background:var(--nc-bg);color:var(--nc)}
+.p-pend{background:var(--pend-bg);color:var(--pend)}
+.p-vacio{background:transparent;color:var(--ink-3);opacity:.5;font-weight:400}
+tr.guardando td{opacity:.55}
+tr.fallo td{background:var(--falta-bg)!important}
+.grupo-fila th{background:var(--accent-soft);font-weight:700;font-size:11px;text-align:left;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--accent);padding:7px 10px;
+  position:sticky;left:0;border-bottom:1px solid var(--line)}
+.vacio{padding:44px;text-align:center;color:var(--ink-3)}
+#brindis{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--paper);
+  padding:9px 16px;border-radius:6px;font-size:12.5px;font-weight:500;z-index:60;box-shadow:0 8px 28px rgba(0,0,0,.25)}
+footer{padding:18px 22px 36px;border-top:1px solid var(--line);background:var(--surface-2);
+  color:var(--ink-3);font-size:12px}
+footer h2{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);margin:0 0 6px;font-weight:600}
+footer p{margin:0 0 8px;max-width:88ch}
+footer b{color:var(--ink-2)}
+.notas{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+@media (max-width:760px){header,.barra,.carriles,.aviso,footer{padding-left:14px;padding-right:14px}
+  .hoja{max-height:none}.conteo{margin-left:0}}
+.verClave{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-3);margin:-4px 0 10px;cursor:pointer}
+.verClave input{width:auto;margin:0}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <form id="formLogin">
+    <h1>Planilla Start Companies</h1>
+    <p>La misma clave del dashboard de métricas.</p>
+    <input type="password" id="clave" placeholder="Contraseña" autocomplete="current-password"
+           autocapitalize="none" autocorrect="off" spellcheck="false" required>
+    <label class="verClave"><input type="checkbox" id="verClave"> Ver lo que escribí</label>
+    <button type="submit">Entrar</button>
+    <div class="err" id="errLogin"></div>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div class="marca">
+      <h1 class="t">Planilla Start Companies</h1>
+      <div class="sub" id="sello">Leyendo el CRM…</div>
+      <div class="sello" id="rolSello">—</div>
+    </div>
+    <div class="rail" role="tablist" id="rail"></div>
+  </header>
+
+  <div class="aviso" id="aviso" hidden></div>
+
+  <div class="barra">
+    <input type="search" id="q" placeholder="Buscar LLC, titular, socio…" aria-label="Buscar">
+    <select class="filtro" id="fEstado" aria-label="Estado"></select>
+    <select class="filtro" id="fSocio" aria-label="Socio"></select>
+    <select class="filtro" id="fAgrupar" aria-label="Agrupar">
+      <option value="">Sin agrupar</option>
+      <option value="socio">Agrupar por socio</option>
+      <option value="estado">Agrupar por estado</option>
+      <option value="fase">Agrupar por fase</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="pend"> Solo lo que falta</label>
+    <button class="btn" id="refrescar">Actualizar</button>
+    <div class="conteo" id="conteo"></div>
+  </div>
+
+  <div class="carriles" id="carriles"></div>
+
+  <div class="hoja">
+    <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
+    <div class="vacio" id="sinFilas" hidden>Ningún trato con esos filtros.</div>
+  </div>
+
+  <footer>
+    <div class="notas">
+      <div>
+        <h2>Qué se edita acá</h2>
+        <p>Las columnas con pastilla se guardan en Zoho apenas las cambiás, con cualquiera de las dos claves. Federal, estatal y R.A. son <b>carriles paralelos</b>: por eso son tres columnas y no una fase.</p>
+      </div>
+      <div>
+        <h2>Por qué es seguro</h2>
+        <p>Tratos no tiene blueprints y sus 5 reglas de flujo están apagadas. Las que mandan WhatsApp viven en Posibles clientes. Igual la función solo acepta estos 9 campos, valida el valor y se niega a tocar un trato que no sea de tipo Renovación.</p>
+      </div>
+      <div>
+        <h2>Lo que todavía no hace</h2>
+        <p>No importa el Excel: los carriles arrancan vacíos hasta que alguien los cargue acá o se haga la migración. No crea tratos nuevos ni edita el módulo LLCs (estado, socio y fechas se leen, no se escriben).</p>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<script>
+const SI_NO_NC = ['Sí','No','No corresponde'];
+const API = '/.netlify/functions/planilla';
+let TOKEN = null, ROL = null, DATOS = null, ORDEN = {campo:null, dir:1};
+let TIPO = 'Renovación';
+try{ const t = new URLSearchParams(location.search).get('tipo'); if(t) TIPO = t; }catch{}
+
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function claseDe(v){
+  const s = (v||'').trim().toLowerCase();
+  if(!s) return 'vacio';
+  if(s==='sí'||s==='si') return 'ok';
+  if(s==='no') return 'falta';
+  if(s==='no corresponde') return 'nc';
+  return 'pend';
+}
+function textoDe(v){
+  const s = (v||'').trim();
+  if(!s) return '—';
+  if(s==='No corresponde') return 'N/C';
+  return s.length>14 ? s.slice(0,13)+'…' : s;
+}
+
+// ---------- login ----------
+document.getElementById('verClave').addEventListener('change', e => {
+  document.getElementById('clave').type = e.target.checked ? 'text' : 'password';
+});
+document.getElementById('formLogin').addEventListener('submit', async e => {
+  e.preventDefault();
+  const err = document.getElementById('errLogin');
+  err.textContent = '';
+  try{
+    const r = await fetch('/.netlify/functions/auth', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({password: document.getElementById('clave').value.trim()})
+    });
+    const j = await r.json();
+    if(!r.ok){ err.textContent = (j.error || 'No pude entrar') + ' (' + r.status + ')'; return; }
+    TOKEN = j.token; ROL = j.rol;
+    try{ sessionStorage.setItem('sc_planilla_tk', TOKEN); sessionStorage.setItem('sc_planilla_rol', ROL); }catch{}
+    arrancar();
+  }catch(ex){ err.textContent = 'Falló la conexión'; }
+});
+
+try{
+  const t = sessionStorage.getItem('sc_planilla_tk');
+  if(t){ TOKEN = t; ROL = sessionStorage.getItem('sc_planilla_rol') || 'equipo'; }
+}catch{}
+
+function arrancar(){
+  document.getElementById('login').hidden = true;
+  document.getElementById('app').hidden = false;
+  document.getElementById('rolSello').textContent = 'Podés editar';
+  cargar();
+}
+
+// ---------- datos ----------
+async function cargar(){
+  document.getElementById('sello').textContent = 'Leyendo el CRM…';
+  try{
+    const r = await fetch(API + '?tipo=' + encodeURIComponent(TIPO), {headers:{Authorization:'Bearer '+TOKEN}});
+    if(r.status===401){ TOKEN=null; try{sessionStorage.clear()}catch{}; location.reload(); return; }
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error||'error');
+    DATOS = j;
+    document.getElementById('sello').textContent =
+      j.total + (j.tipo==='Estatal' ? ' LLCs con renovación estatal' : ' tratos de ' + j.tipo.toLowerCase()) + ' · leído ' + new Date(j.generado).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+    armarRail(); armarFiltros(); pintar();
+  }catch(e){
+    document.getElementById('sello').textContent = 'No pude leer el CRM: ' + e.message;
+  }
+}
+
+function armarRail(){
+  const rail = document.getElementById('rail');
+  const tipos = Object.keys(VISTAS).filter(t => t !== 'EIN' || DATOS.hayEin);
+  rail.innerHTML = tipos.map(t =>
+    `<button role="tab" data-t="${esc(t)}" aria-selected="${t===TIPO}">${esc(VISTAS[t].etiqueta)}${t===TIPO?`<span class="n">${DATOS.total}</span>`:''}</button>`).join('');
+  rail.onclick = e => { const b = e.target.closest('button'); if(!b||b.dataset.t===TIPO) return;
+    TIPO = b.dataset.t; ORDEN={campo:null,dir:1}; cargar(); };
+}
+
+function opciones(sel, campo, etiqueta){
+  const vals = [...new Set(DATOS.filas.map(f=>(f[campo]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
+  sel.innerHTML = `<option value="">${esc(etiqueta)}: todos</option>` +
+    vals.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('') +
+    `<option value=" ">${esc(etiqueta)}: sin cargar</option>`;
+}
+function armarFiltros(){
+  const v = vista();
+  [['fEstado',0],['fSocio',1]].forEach(([id,n])=>{
+    const sel = document.getElementById(id), f = v.filtros[n];
+    if(!f){ sel.hidden = true; sel.innerHTML=''; return; }
+    sel.hidden = false; sel.dataset.campo = f[0];
+    opciones(sel, f[0], f[1]);
+  });
+  const ag = document.getElementById('fAgrupar');
+  ag.innerHTML = '<option value="">Sin agrupar</option>' +
+    v.agrupar.map(a=>`<option value="${a[0]}">Agrupar por ${esc(a[1])}</option>`).join('');
+  document.getElementById('q').placeholder = 'Buscar ' + v.busca.join(', ') + '…';
+}
+
+// ---------- columnas ----------
+// Cada pestaña del Excel: sus columnas, sus carriles editables y sus filtros.
+const VISTAS = {
+  'Renovación': {
+    etiqueta: 'Renovaciones',
+    cols: [['llc','LLC','fija'],['titular','Titular','texto'],['socio','Socio','texto'],
+      ['estado','Estado','tag'],['estructura','Estructura','texto'],['fase','Fase','texto'],
+      ['importe','Importe','plata'],['medios','Medio de pago','tenue'],
+      ['pago','Confirmación de pago','tenue'],['vtoFederal','Vto. federal','num'],
+      ['vtoEstatal','Vto. estatal','num']],
+    edit: [['federal','Federal','Renovaci_n_federal',SI_NO_NC],
+      ['estatal','Estatal','Renovaci_n_estatal',SI_NO_NC],
+      ['ra','R.A.','Renovaci_n_R_A',SI_NO_NC],
+      ['avisado','Avisado','Avisado_al_cliente_o_partner',['Sí','No']],
+      ['liquidador','Liquidador','Enviado_al_liquidador',SI_NO_NC],
+      ['multa','Multa','Posibilidad_de_multa',['Sí','No']],
+      ['paquete','Paquete','Paquete',null],
+      ['origen','Origen','Origen_del_trato',null]],
+    filtros: [['estado','Estado'],['socio','Socio']],
+    agrupar: [['socio','socio'],['estado','estado'],['fase','fase']],
+    busca: ['llc','titular','socio','mail'],
+    medidores: 5,
+  },
+  'Apertura': {
+    etiqueta: 'Aperturas',
+    cols: [['llc','LLC','fija'],['titular','Titular','texto'],['socio','Socio','texto'],
+      ['estado','Estado','tag'],['estructura','Estructura','texto'],['fase','Fase','texto'],
+      ['importe','Importe','plata'],['medios','Medio de pago','tenue'],
+      ['pago','Confirmación de pago','tenue'],['duenio','Dueño','tenue']],
+    edit: [['paquete','Paquete','Paquete',null],['origen','Origen','Origen_del_trato',null]],
+    filtros: [['estado','Estado'],['fase','Fase']],
+    agrupar: [['fase','fase'],['estado','estado'],['duenio','dueño']],
+    busca: ['llc','titular','mail'],
+    medidores: 0,
+  },
+  'Cuenta Bancaria': {
+    etiqueta: 'Cuentas bancarias',
+    cols: [['llc','LLC','fija'],['titular','Titular','texto'],['estado','Estado','tag'],
+      ['fase','Fase','texto'],['importe','Importe','plata'],
+      ['pago','Confirmación de pago','tenue'],['duenio','Dueño','tenue']],
+    edit: [],
+    filtros: [['fase','Fase'],['estado','Estado']],
+    agrupar: [['fase','fase'],['estado','estado']],
+    busca: ['llc','titular','mail'],
+    medidores: 0,
+  },
+  'Estatal': {
+    etiqueta: 'Estatales',
+    cols: [['llc','LLC','fija'],['estado','Estado','tag'],['socio','Socio','texto'],
+      ['motivo','Por qué entra','tenue'],['constituida','Constituida','num'],
+      ['abre','Se puede desde','num'],['vence','Vence','num'],['dias','Días','num'],['alerta','Situación','alerta'],
+      ['ultima','Última presentada','num'],['zoho','Zoho','zoho']],
+    edit: [['marca','Marcar','marca',['Presentada','No nos toca']]],
+    filtros: [['estado','Estado'],['alerta','Situación']],
+    agrupar: [['estado','estado'],['socio','socio'],['alerta','situación']],
+    busca: ['llc','socio'],
+    medidores: 0,
+    pendiente: f => f.alerta==='Vencida' || f.alerta==='Presentar ya' || f.alerta==='Revisar a mano',
+  },
+  'EIN': {
+    etiqueta: 'Pedidos de EIN',
+    cols: [['llc','LLC','fija'],['titular','Titular','texto'],['nacionalidad','Nacionalidad','texto'],
+      ['estructura','Estructura','texto'],['estado','Estado','tag'],['socios','Socios','num'],
+      ['actividad','Actividad','tenue'],['fecha','Fecha','num'],
+      ['responsable','Responsable','texto'],['domicilio','Domicilio','tenue']],
+    edit: [['confirmado','Confirmado','Confirmado',['Confirmado','Sin confirmar']],
+      ['pago','Pagado','Pago',['Pagado','Impago']],
+      ['entregado','Entregado','Entregado',['Entregado','Pendiente']]],
+    filtros: [['confirmado','Confirmación'],['nacionalidad','Nacionalidad']],
+    agrupar: [['responsable','responsable'],['confirmado','confirmación'],['nacionalidad','nacionalidad']],
+    busca: ['llc','titular','actividad'],
+    medidores: 3,
+  },
+};
+const vista = () => VISTAS[TIPO] || VISTAS['Renovación'];
+const COLS = () => vista().cols;
+const EDIT = () => vista().edit;
+
+function filtrar(){
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const fe = document.getElementById('fEstado').value;
+  const fs = document.getElementById('fSocio').value;
+  const soloPend = document.getElementById('pend').checked;
+  return DATOS.filas.filter(f => {
+    if(q && !vista().busca.some(k=>(f[k]||'').toLowerCase().includes(q))) return false;
+    for(const sel of [document.getElementById('fEstado'), document.getElementById('fSocio')]){
+      if(sel.hidden) continue;
+      const val = sel.value, campo = sel.dataset.campo;
+      if(!val) continue;
+      const v = (f[campo]||'').trim();
+      if(val === ' '){ if(v) return false; } else if(v !== val) return false;
+    }
+    if(soloPend && vista().pendiente){ if(!vista().pendiente(f)) return false; }
+    else if(soloPend){
+      const hay = EDIT().slice(0, vista().medidores || EDIT().length).some(([k])=>{
+        const c = claseDe(f[k]); return c==='falta' || c==='vacio';
+      });
+      if(!hay) return false;
+    }
+    return true;
+  });
+}
+
+function medidores(filas){
+  const cuantos = vista().medidores;
+  document.getElementById('carriles').hidden = !cuantos;
+  document.getElementById('carriles').innerHTML = EDIT().slice(0,cuantos).map(([k,t]) => {
+    let ok=0, corresponde=0;
+    filas.forEach(f=>{ const c=claseDe(f[k]); if(c==='nc') return; corresponde++; if(c==='ok') ok++; });
+    const pct = corresponde ? Math.round(ok/corresponde*100) : 0;
+    return `<div class="carril"><div class="t">${esc(t)}</div>
+      <div class="v">${ok} <span>de ${corresponde}</span></div>
+      <div class="medidor"><i style="width:${pct}%"></i></div></div>`;
+  }).join('');
+}
+
+function pintar(){
+  let filas = filtrar();
+  if(ORDEN.campo){
+    const c = ORDEN.campo;
+    filas = filas.slice().sort((a,b)=>{
+      const x=(a[c]==null?'':String(a[c])).toLowerCase(), y=(b[c]==null?'':String(b[c])).toLowerCase();
+      if(!x&&y) return 1; if(x&&!y) return -1;
+      return x.localeCompare(y,'es',{numeric:true}) * ORDEN.dir;
+    });
+  }
+  const ag = document.getElementById('fAgrupar').value;
+  if(ag) filas = filas.slice().sort((a,b)=>((a[ag]||'~~~')+'').localeCompare((b[ag]||'~~~')+'','es'));
+
+  medidores(filas);
+  document.getElementById('conteo').innerHTML = `<b>${filas.length}</b> de ${DATOS.total}`;
+
+  const flecha = c => ORDEN.campo===c ? (ORDEN.dir>0?' ↑':' ↓') : '';
+  document.getElementById('thead').innerHTML = '<tr>' +
+    COLS().map(([c,t,tipo])=>`<th data-c="${c}"${tipo==='fija'?' class="fija"':''}>${esc(t)}${flecha(c)}</th>`).join('') +
+    EDIT().map(([c,t])=>`<th class="grupo" data-c="${c}">${esc(t)}${flecha(c)}</th>`).join('') + '</tr>';
+
+  const ancho = COLS().length + EDIT().length;
+  const partes = []; let grupo = null;
+  for(const f of filas){
+    if(ag){
+      const g = (f[ag]||'').trim() || 'Sin cargar';
+      if(g !== grupo){ grupo = g; partes.push(`<tr class="grupo-fila"><th colspan="${ancho}">${esc(g)}</th></tr>`); }
+    }
+    partes.push(`<tr data-id="${esc(f.id)}">` +
+      COLS().map(([c,,tipo])=>celda(f,c,tipo)).join('') +
+      EDIT().map(([c,,api,vals])=>celdaEdit(f,c,api,vals)).join('') + '</tr>');
+  }
+  document.getElementById('tbody').innerHTML = partes.join('');
+  document.getElementById('sinFilas').hidden = filas.length>0;
+}
+
+function celda(f,c,tipo){
+  const v = f[c];
+  if(tipo==='fija') return `<td class="fija" title="${esc(v)}">${esc(v)}</td>`;
+  if(tipo==='tag') return `<td>${v?`<span class="estado-tag">${esc(v)}</span>`:'<span class="p p-vacio">—</span>'}</td>`;
+  if(tipo==='num') return `<td class="num">${esc(v)||'·'}</td>`;
+  if(tipo==='plata') return `<td class="num">${v==null?'·':Number(v).toLocaleString('es-AR',{maximumFractionDigits:0})}</td>`;
+  if(tipo==='alerta'){ const k={'Vencida':'falta','Presentar ya':'pend','Esperando ventana':'nc','Al día':'ok','Marcada':'ok','Revisar a mano':'pend'}[v]||'vacio';
+    return `<td><span class="p p-${k}">${esc(v)||'—'}</span></td>`; }
+  if(tipo==='zoho') return `<td><a href="https://crm.zoho.com/crm/org881745849/tab/Accounts/${esc(f.id)}" target="_blank" rel="noopener">abrir</a></td>`;
+  if(tipo==='tenue') return `<td class="tenue" title="${esc(v)}">${esc(v)||'·'}</td>`;
+  return `<td>${esc(v)||'·'}</td>`;
+}
+
+function celdaEdit(f,c,api,vals){
+  const opts = vals || (DATOS.editables?.[api] || []);
+  const actual = f[c] || '';
+  const puede = true;
+  const o = ['<option value="">—</option>']
+    .concat(opts.map(v=>`<option value="${esc(v)}"${v===actual?' selected':''}>${esc(v==='No corresponde'?'N/C':v)}</option>`));
+  if(actual && !opts.includes(actual)) o.push(`<option value="${esc(actual)}" selected>${esc(actual)}</option>`);
+  return `<td class="celda-edit"><select class="p p-${claseDe(actual)}" data-campo="${esc(api)}" data-col="${c}"
+    ${puede?'':'disabled'} title="${esc(actual||'sin cargar')}">${o.join('')}</select></td>`;
+}
+
+// ---------- guardar ----------
+let brindisT = null;
+function brindis(msg, malo){
+  let el = document.getElementById('brindis');
+  if(!el){ el = document.createElement('div'); el.id='brindis'; document.body.appendChild(el); }
+  el.textContent = msg;
+  el.style.background = malo ? 'var(--falta)' : 'var(--ink)';
+  el.style.color = malo ? '#fff' : 'var(--paper)';
+  clearTimeout(brindisT); brindisT = setTimeout(()=>el.remove(), 2600);
+}
+
+document.getElementById('tbody').addEventListener('change', async e => {
+  const sel = e.target.closest('select[data-campo]');
+  if(!sel) return;
+  const tr = sel.closest('tr');
+  const id = tr.dataset.id, campo = sel.dataset.campo, col = sel.dataset.col;
+  const fila = DATOS.filas.find(f=>f.id===id);
+  const antes = fila ? (fila[col]||'') : '';
+  const nuevo = sel.value;
+
+  tr.classList.add('guardando'); sel.disabled = true;
+  try{
+    const r = await fetch(API, {
+      method:'POST',
+      headers:{'Content-Type':'application/json', Authorization:'Bearer '+TOKEN},
+      body: JSON.stringify({id, campo, valor:nuevo, tipo:TIPO, tratoId: fila?.tratoId, anio: fila?.anio})
+    });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || 'no se pudo guardar');
+    if(fila) fila[col] = nuevo;
+    if(fila && TIPO==='Estatal'){ fila.ultima = j.fecha; fila.alerta = 'Marcada'; pintar(); }
+    sel.className = 'p p-' + claseDe(nuevo);
+    sel.title = nuevo || 'sin cargar';
+    brindis('Guardado en el CRM');
+    medidores(filtrar());
+  }catch(ex){
+    sel.value = antes;
+    sel.className = 'p p-' + claseDe(antes);
+    tr.classList.add('fallo'); setTimeout(()=>tr.classList.remove('fallo'), 2200);
+    brindis(ex.message, true);
+  }finally{
+    tr.classList.remove('guardando'); sel.disabled = false;
+  }
+});
+
+document.getElementById('thead').addEventListener('click', e => {
+  const th = e.target.closest('th'); if(!th || !th.dataset.c) return;
+  const c = th.dataset.c;
+  ORDEN = ORDEN.campo===c ? {campo:c, dir:-ORDEN.dir} : {campo:c, dir:1};
+  pintar();
+});
+['q','fEstado','fSocio','fAgrupar','pend'].forEach(id =>
+  document.getElementById(id).addEventListener('input', () => { if(DATOS) pintar(); }));
+document.getElementById('refrescar').addEventListener('click', cargar);
+
+if(TOKEN) arrancar();
+</script>
+</body>
+</html>

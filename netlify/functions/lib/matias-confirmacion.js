@@ -32,7 +32,7 @@ import { getStore } from '@netlify/blobs';
 import { env } from './entorno.js';
 import { get, conversacionesDesde } from './conversaciones/zoho.js';
 import { LINEAS, lineaDe, mandar, plantilla as armarPlantilla, plantillaVideo, registrar, enHilo, fusible, estadoDe } from './matias.js';
-import { origenDe, paisDe, PLANTILLAS, nombreDe, plantillaPara, textoDe } from './matias-cerebro.js';
+import { origenDe, origenDeReunion, paisDe, PLANTILLAS, nombreDe, plantillaPara, textoDe } from './matias-cerebro.js';
 import { esHoraDeAbrir, estadoPlantillas, conviveCon786 } from './matias-apertura.js';
 import * as hilo from './hilo.js';
 import { ofrecer, enZona, zonaDe } from './matias-agenda.js';
@@ -171,7 +171,7 @@ export async function pasadaConfirmacion({ ahora = new Date(), enviar = false } 
     // Horarios alternativos reales (el día siguiente a la reunión, en la hora del lead), para que elija en el momento.
     const diaSiguiente = enZona(new Date(new Date(ev.Start_DateTime).getTime() + 24 * H), zonaDe(tel)).fecha;
     let of = { opciones: [], frase: '' };
-    try { of = await ofrecer({ origen: origenDe(lead), numero: tel, dia: diaSiguiente, franja: '', ahora }); } catch (e) { resumen.salteados.push(`${ev.Event_Title}: sin horarios (${e.message})`); }
+    try { of = await ofrecer({ origen: origenDeReunion(ev.Event_Title) || origenDe(lead), numero: tel, dia: diaSiguiente, franja: '', ahora }); } catch (e) { resumen.salteados.push(`${ev.Event_Title}: sin horarios (${e.message})`); }
     if (!of.opciones.length) { await saltear('sin horarios libres para ofrecer'); continue; }
     const clavePl = 'confirmacion';
     const plantilla = plantillaPara(clavePl, tel, plantillas);

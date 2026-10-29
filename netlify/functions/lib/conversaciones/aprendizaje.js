@@ -62,7 +62,7 @@ function guardarPar(par) {
  *
  * Devuelve cuantos pares nuevos aprendio.
  */
-export function capturar(conversaciones, estado, ahora = new Date()) {
+export function capturar(conversaciones, estado, ahora = new Date(), { alGuardar } = {}) {
   const pendientes = estado.esperandoRespuesta || (estado.esperandoRespuesta = {});
   let nuevos = 0;
 
@@ -89,7 +89,7 @@ export function capturar(conversaciones, estado, ahora = new Date()) {
       String(c.last_message__s || '').trim().length > 25;
 
     if (util) {
-      guardarPar({
+      const par = {
         cuando: ahora.toISOString(),
         conversacion: c.id,
         tema: guardado.tema,
@@ -98,7 +98,12 @@ export function capturar(conversaciones, estado, ahora = new Date()) {
         respuesta: c.last_message__s,
         respondio: quien,
         horasQueTardaron: Math.round(horas * 10) / 10,
-      });
+      };
+      guardarPar(par);
+      // Quien quiera engancharse al par recien cerrado se entera aca. Lo usa
+      // `confirmacion.js` para quedarse esperando el "ok, entendi" del cliente,
+      // que es el mensaje siguiente y esta pasada todavia no vio.
+      alGuardar?.(par, c);
       nuevos++;
     }
     delete pendientes[c.id];

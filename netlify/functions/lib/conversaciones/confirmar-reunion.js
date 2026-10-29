@@ -29,26 +29,19 @@
 // alguien que iba a venir, y eso es peor que no leer nada.
 import { get, conversacionesDesde } from './zoho.js';
 import { confirmarReunion } from './escritura.js';
-import { cerrarPisadas, reservaDe, reservaCanceladaDe, avisarReprogramar, HORAS_VENTANA } from './reprogramar.js';
+import { cerrarPisadas, reservaDe, reservaCanceladaDe, mandarBotonReprogramar, primerNombre, HORAS_VENTANA } from './reprogramar.js';
 import { reservarDeNuevo } from './cal.js';
 
-export const HORAS_ATRAS = 2; // reuniones que ya empezaron hace poco tambien cuentan
-export const DIAS_ADELANTE = 15; // el "Confirmo" del boton de agendado puede llegar dias antes
-export const HORAS_VENTANA_24H = 26; // desde cuando un "no" escrito a mano se lee como "no asiste"
 
-const normalizar = (t) =>
-  String(t || '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/\p{Extended_Pictographic}/gu, ' ')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+export const HORAS_ATRAS = 2; // reuniones que ya empezaron hace poco tambien cuentan
+export const DIAS_ADELANTE = 15;
+export const HORAS_VENTANA_24H = 26;
+
+const normalizar = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(new RegExp("\\p{Extended_Pictographic}", "gu"), " ").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 
 // Lo que mandan los botones. Van primero y valen en cualquier momento desde que
 // existe la reunion.
-const BOTON_SI = new Set(['si', 'confirmo', 'sim']);
+const BOTON_SI = new Set(['si', 'confirmo', 'sim', 'yes']); // 28-oct-2026: 'yes' = botón de cliente_confirmacion_24h_en
 // Brasil (14-oct-2026): "Não" llega normalizado como "nao"; "preciso reagendar/remarcar"
 // es el par de "necesito reprogramar" (va a la misma rama, reprograma).
 const BOTON_NO = new Set(['no', 'necesito reprogramar', 'nao', 'preciso reagendar', 'preciso remarcar']);
@@ -63,12 +56,35 @@ const SI_ESCRITO = new Set([
   'si nos vemos', 'nos vemos', 'si nos vemos manana', 'si confirmo asistencia',
   'confirmo asistencia', 'si si', 'sii', 'siii', 'yes',
   'sim vou', 'vou sim', 'sim confirmo', // Brasil
+  'yes i will', 'yes i can', 'i will be there', 'yes see you', 'confirmed', 'i confirm', // inglés (28-oct)
 ]);
-const NO_ESCRITO = new Set([
-  'no puedo', 'no voy', 'no podre', 'no asistire', 'no voy a poder', 'no puedo asistir',
-  'no puedo manana', 'no podre asistir', 'reprogramar', 'quiero reprogramar',
-  'necesito reagendar', 'reagendar', 'cancelar', 'cancelo', 'no gracias', 'no no',
-  'nao vou', // Brasil ("não vou")
+const NO_ESCRITO = /* @__PURE__ */ new Set([
+  "no puedo",
+  "no voy",
+  "no podre",
+  "no asistire",
+  "no voy a poder",
+  "no puedo asistir",
+  "no puedo manana",
+  "no podre asistir",
+  "reprogramar",
+  "quiero reprogramar",
+  "necesito reagendar",
+  "reagendar",
+  "cancelar",
+  "cancelo",
+  "no gracias",
+  "no no",
+  "nao vou",
+  // Brasil ("não vou")
+  "i can t make it",
+  "i cannot make it",
+  "i can t attend",
+  "i cannot attend",
+  "need to reschedule",
+  "i need to reschedule",
+  "reschedule"
+  // inglés (28-oct-2026)
 ]);
 
 /**
@@ -163,112 +179,84 @@ async function cargarTelefonos(reuniones) {
  * Exportada aparte para poder probarla sin red.
  */
 export function decidir(conversaciones, reuniones, todas = reuniones) {
-  // Para "reprogramar" cuenta cualquier reunion de venta abierta, aunque ya este
-  // confirmada: el que confirmo y despues no puede tambien tiene que poder moverla.
-  const abiertas = new Map();
+  const abiertas = /* @__PURE__ */ new Map();
   for (const e of todas) {
-    if (e.Tipo_de_reuni_n === 'Clientes' || !e.What_Id?.id || e.Status_del_Meet) continue;
-    if (/^\[(CANCELADA|REAGENDADA)\]/.test(e.Event_Title || '')) continue;
+    if (e.Tipo_de_reuni_n === "Clientes" || !e.What_Id?.id || e.Status_del_Meet) continue;
+    if (/^\[(CANCELADA|REAGENDADA)\]/.test(e.Event_Title || "")) continue;
     if (!abiertas.has(e.What_Id.id)) abiertas.set(e.What_Id.id, []);
     abiertas.get(e.What_Id.id).push(e);
   }
-  // Reuniones de venta liberadas por el agente (liberar-sin-confirmar.js) o canceladas,
-  // todavia por delante: un "Si" tardio sobre una de estas no tiene donde caer.
-  const liberadas = new Map();
+  const liberadas = /* @__PURE__ */ new Map();
   for (const e of todas) {
-    if (e.Tipo_de_reuni_n === 'Clientes' || !e.What_Id?.id) continue;
-    if (!/^\[CANCELADA\]/.test(e.Event_Title || '')) continue;
+    if (e.Tipo_de_reuni_n === "Clientes" || !e.What_Id?.id) continue;
+    if (!/^\[CANCELADA\]/.test(e.Event_Title || "")) continue;
     if (!liberadas.has(e.What_Id.id)) liberadas.set(e.What_Id.id, []);
     liberadas.get(e.What_Id.id).push(e);
   }
-  const porPersona = new Map();
-  const porTelefono = new Map(); // solo Clientes: el hilo puede colgar de un lead viejo
-  const masCercana = (mapa, clave, e) => {
-    // Si la misma persona tiene dos reuniones pendientes, la mas cercana.
-    const previa = mapa.get(clave);
-    if (!previa || new Date(e.Start_DateTime) < new Date(previa.Start_DateTime)) mapa.set(clave, e);
+  const porPersona = /* @__PURE__ */ new Map();
+  const porTelefono = /* @__PURE__ */ new Map();
+  const masCercana = (mapa, clave2, e) => {
+    const previa = mapa.get(clave2);
+    if (!previa || new Date(e.Start_DateTime) < new Date(previa.Start_DateTime)) mapa.set(clave2, e);
   };
   for (const e of reuniones) {
     for (const ref of [e.What_Id?.id, e.Who_Id?.id]) if (ref) masCercana(porPersona, ref, e);
     if (e._telefono) masCercana(porTelefono, e._telefono, e);
   }
-
   const cruces = [];
   for (const c of conversaciones) {
-    if (c.conversation_status__s !== 'Responded') continue; // hablo ultimo el cliente
-    const quien = c.sender__s?.id;
-
-    // Pide otro horario: se le manda el boton para mover SU reserva (reprogramar.js).
-    // Solo si tiene UNA reunion abierta (un duplicado del mismo horario cuenta como
-    // una): con dos, no se sabe cual quiere mover (caso Derly, 15-sep) y lo lee una
-    // persona. Las reuniones posteriores al mensaje no cuentan (no es a esas).
+    if (c.conversation_status__s !== "Responded") continue;
+    const quien2 = c.sender__s?.id;
     const r0 = leerRespuesta(c.last_message__s);
-    if (r0?.reprograma && quien && abiertas.has(quien)) {
-      const cuando = new Date(c.message_time__s);
-      const previas = abiertas.get(quien).filter((e) => new Date(e.Created_Time) <= cuando && new Date(e.Start_DateTime) > cuando);
+    if (r0?.reprograma && quien2 && abiertas.has(quien2)) {
+      const cuando3 = new Date(c.message_time__s);
+      const previas = abiertas.get(quien2).filter((e) => new Date(e.Created_Time) <= cuando3 && new Date(e.Start_DateTime) > cuando3);
       const horarios = new Set(previas.map((e) => new Date(e.Start_DateTime).getTime()));
       if (horarios.size === 1) {
-        const evento = previas.sort((a, b) => new Date(b.Created_Time) - new Date(a.Created_Time))[0];
-        cruces.push({ evento, conversacion: c, decision: { accion: 'reprogramar', motivo: r0.boton ? 'boton' : 'escrito' } });
+        const evento2 = previas.sort((a, b) => new Date(b.Created_Time) - new Date(a.Created_Time))[0];
+        cruces.push({ evento: evento2, conversacion: c, decision: { accion: "reprogramar", motivo: r0.boton ? "boton" : "escrito" } });
         continue;
       }
       if (horarios.size > 1) {
-        cruces.push({ evento: previas[0], conversacion: c, decision: { accion: 'revisar', motivo: 'pidio reprogramar y tiene mas de una reunion' } });
+        cruces.push({ evento: previas[0], conversacion: c, decision: { accion: "revisar", motivo: "pidio reprogramar y tiene mas de una reunion" } });
         continue;
       }
     }
-
-    const evento = (quien && porPersona.get(quien)) || porTelefono.get(soloDigitos(c.mobile_number__s));
+    const evento = quien2 && porPersona.get(quien2) || porTelefono.get(soloDigitos(c.mobile_number__s));
     if (!evento) {
-      // Contesto "Si" despues de que le liberamos el horario y no tiene otra reunion:
-      // quiere venir y nadie lo levanta (caso Emsabri, 11-oct-2026). Lo lee una persona
-      // y la vuelve a reservar; no se reabre sola porque el hueco puede estar tomado.
-      const cuando = new Date(c.message_time__s);
-      const lib = (liberadas.get(quien) || []).filter(
-        (e) => new Date(e.Created_Time) <= cuando && new Date(e.Start_DateTime) > cuando
+      const cuando3 = new Date(c.message_time__s);
+      const lib = (liberadas.get(quien2) || []).filter(
+        (e) => new Date(e.Created_Time) <= cuando3 && new Date(e.Start_DateTime) > cuando3
       );
-      if (lib.length && !abiertas.has(quien) && leerRespuesta(c.last_message__s)?.valor === 'si') {
-        cruces.push({ evento: lib[0], conversacion: c, decision: { accion: 'revisar', motivo: 'si_tardio' } });
+      if (lib.length && !abiertas.has(quien2) && leerRespuesta(c.last_message__s)?.valor === "si") {
+        cruces.push({ evento: lib[0], conversacion: c, decision: { accion: "revisar", motivo: "si_tardio" } });
       }
       continue;
     }
-
-    const cuando = new Date(c.message_time__s);
+    const cuando2 = new Date(c.message_time__s);
     const inicio = new Date(evento.Start_DateTime);
     const creada = new Date(evento.Created_Time);
-    const desde24h = new Date(inicio.getTime() - HORAS_VENTANA_24H * 3600e3);
-    const texto = String(c.last_message__s || '').trim();
-
-    if (cuando < creada) {
-      cruces.push({ evento, conversacion: c, decision: { accion: 'ignorar', motivo: 'mensaje anterior a la reunion' } });
+    const desde24h = new Date(inicio.getTime() - HORAS_VENTANA_24H * 36e5);
+    const texto = String(c.last_message__s || "").trim();
+    if (cuando2 < creada) {
+      cruces.push({ evento, conversacion: c, decision: { accion: "ignorar", motivo: "mensaje anterior a la reunion" } });
       continue;
     }
     const r = leerRespuesta(texto);
     if (!r) {
-      // Escribio otra cosa. Si estamos dentro de la ventana del recordatorio,
-      // alguien tiene que leerlo: puede ser "puede ser a las 5?" o "no me
-      // llego el link".
-      const accion = cuando >= desde24h ? 'revisar' : 'ignorar';
-      cruces.push({ evento, conversacion: c, decision: { accion, motivo: 'no es un si ni un no' } });
+      const accion = cuando2 >= desde24h ? "revisar" : "ignorar";
+      cruces.push({ evento, conversacion: c, decision: { accion, motivo: "no es un si ni un no" } });
       continue;
     }
-    if (r.valor === 'si') {
-      cruces.push({ evento, conversacion: c, decision: { accion: 'confirmar', motivo: r.boton ? 'boton' : 'escrito' } });
+    if (r.valor === "si") {
+      cruces.push({ evento, conversacion: c, decision: { accion: "confirmar", motivo: r.boton ? "boton" : "escrito" } });
       continue;
     }
-    // Un "no" (boton o escrito) solo vale si la pregunta de 24 h de ESTA reunion
-    // ya salio: antes puede ser el no a cualquier otra cosa. Caso Derly Torres
-    // (15-sep-2026): confirmo la del 15, reservo otra para el 16 y toco "Necesito
-    // reprogramar" en el mensaje de la del 15; la del 15 ya no estaba pendiente y
-    // el "no" fue a parar a la del 16, cuya pregunta recien salia a las 12:30.
-    // Le mando "reprograma", le apago el Si/No y el aviso de 30 min, y asistio.
-    // `Hora_de_confirmaci_n` es la hora en que Zoho manda ese mensaje; si esta
-    // vacia (reunion recien creada, cola del bug de Add Meeting) se usa la ventana.
     const preguntada = evento.Hora_de_confirmaci_n ? new Date(evento.Hora_de_confirmaci_n) : desde24h;
-    if (cuando >= preguntada) {
-      cruces.push({ evento, conversacion: c, decision: { accion: 'no_asiste', motivo: r.boton ? 'boton' : 'escrito' } });
+    if (cuando2 >= preguntada) {
+      cruces.push({ evento, conversacion: c, decision: { accion: "no_asiste", motivo: r.boton ? "boton" : "escrito" } });
     } else {
-      cruces.push({ evento, conversacion: c, decision: { accion: 'revisar', motivo: 'un no antes del recordatorio de 24 h' } });
+      cruces.push({ evento, conversacion: c, decision: { accion: "revisar", motivo: "un no antes del recordatorio de 24 h" } });
     }
   }
   return cruces;
@@ -278,37 +266,27 @@ export function decidir(conversaciones, reuniones, todas = reuniones) {
  * Una pasada completa. `escribir=false` decide pero no toca el CRM.
  * `desde` es el corte de lectura de conversaciones (Date).
  */
-export async function unaPasada({ escribir = false, ahora = new Date(), desde = null, hechos = new Set() } = {}) {
-  const corte = desde || new Date(ahora.getTime() - 6 * 3600e3);
-  const [conversaciones, proximas] = await Promise.all([conversacionesDesde(corte), reunionesProximas(ahora)]);
-
-  // Primero la red: la reserva mas nueva de cada lead es la que vale (reprogramar.js).
-  const pisadas = await cerrarPisadas({ todas: proximas, escribir, ahora });
-  const fuera = new Set(pisadas.filter((p) => !p.dudosa && (!escribir || p.zoho?.ok)).map((p) => p.cerrar.id));
-  const todas = proximas.filter((e) => !fuera.has(e.id));
-
+export async function unaPasada({ escribir = false, ahora = /* @__PURE__ */ new Date(), desde = null, hechos = /* @__PURE__ */ new Set() } = {}) {
+  const corte = desde || new Date(ahora.getTime() - 6 * 36e5);
+  const [conversaciones, proximas2] = await Promise.all([conversacionesDesde(corte), reunionesProximas(ahora)]);
+  const pisadas2 = await cerrarPisadas({ todas: proximas2, escribir, ahora });
+  const fuera = new Set(pisadas2.filter((p) => !p.dudosa && (!escribir || p.zoho?.ok)).map((p) => p.cerrar.id));
+  const todas = proximas2.filter((e) => !fuera.has(e.id));
   const cruces = decidir(conversaciones, soloPendientes(todas), todas);
-
   const resultados = [];
   for (const x of cruces) {
-    if (x.decision.accion === 'ignorar') continue;
+    if (x.decision.accion === "ignorar") continue;
     const salida = { ...x, ejecucion: null };
-    if (x.decision.accion === 'reprogramar') {
-      // Una vez por mensaje (las pasadas se solapan) y dentro de la ventana de Meta.
-      const clave = `reprog:${x.evento.id}:${x.conversacion.message_time__s}`;
-      if (hechos.has(clave)) continue;
-      salida.clave = clave;
-      const edad = (ahora - new Date(x.conversacion.message_time__s)) / 3600e3;
+    if (x.decision.accion === "reprogramar") {
+      const clave2 = `reprog:${x.evento.id}:${x.conversacion.message_time__s}`;
+      if (hechos.has(clave2)) continue;
+      salida.clave = clave2;
+      const edad = (ahora - new Date(x.conversacion.message_time__s)) / 36e5;
       if (edad > HORAS_VENTANA) {
-        salida.decision = { accion: 'revisar', motivo: 'pidio reprogramar hace mas de 23 h' };
+        salida.decision = { accion: "revisar", motivo: "pidio reprogramar hace mas de 23 h" };
       } else if (escribir) {
-        // 14-oct-2026 (Ignacio: "no la podés cancelar y dejar el flujo?"): pedir otro
-        // horario = el "No" del Sí/No. Confirmacion = No asiste con workflow: Zoho le
-        // manda el "liberamos ese horario, elegí otro" y apaga los avisos de 30 min /
-        // "es la hora", y cancelaciones.js (misma pasada) cancela en Cal, a las 24 h
-        // le pregunta si encontró horario y a las 72 h pasa a Matías. Nadie a mano.
         try {
-          salida.ejecucion = await confirmarReunion(x.evento.id, 'No asiste');
+          salida.ejecucion = await confirmarReunion(x.evento.id, "No asiste");
         } catch (e) {
           salida.ejecucion = { ok: false, error: String(e.message) };
         }
@@ -316,25 +294,22 @@ export async function unaPasada({ escribir = false, ahora = new Date(), desde = 
       resultados.push(salida);
       continue;
     }
-    if (x.decision.motivo === 'si_tardio') {
-      // Dijo "Si" sobre una reunion que ya le liberamos: se le vuelve a reservar el
-      // mismo horario en Cal, si sigue libre y falta mas de 45 min. Una vez por mensaje.
-      // Si no se puede, queda el aviso a Slack para que lo haga una persona.
-      const clave = `${x.evento.id}:${x.conversacion.message_time__s}`;
-      if (hechos.has(clave)) continue;
-      if (escribir && new Date(x.evento.Start_DateTime) - ahora > 45 * 60e3) {
+    if (x.decision.motivo === "si_tardio") {
+      const clave2 = `${x.evento.id}:${x.conversacion.message_time__s}`;
+      if (hechos.has(clave2)) continue;
+      if (escribir && new Date(x.evento.Start_DateTime) - ahora > 45 * 6e4) {
         try {
           const b = await reservaCanceladaDe(x.evento);
-          salida.ejecucion = b ? await reservarDeNuevo(b) : { ok: false, error: 'no encontre la reserva cancelada en Cal' };
+          salida.ejecucion = b ? await reservarDeNuevo(b) : { ok: false, error: "no encontre la reserva cancelada en Cal" };
         } catch (e) {
           salida.ejecucion = { ok: false, error: String(e.message) };
         }
-      } else if (escribir) salida.ejecucion = { ok: false, error: 'falta menos de 45 min' };
+      } else if (escribir) salida.ejecucion = { ok: false, error: "falta menos de 45 min" };
       resultados.push(salida);
       continue;
     }
-    if (['confirmar', 'no_asiste'].includes(x.decision.accion) && escribir) {
-      const valor = x.decision.accion === 'confirmar' ? 'Confirmó' : 'No asiste';
+    if (["confirmar", "no_asiste"].includes(x.decision.accion) && escribir) {
+      const valor = x.decision.accion === "confirmar" ? "Confirm\xF3" : "No asiste";
       try {
         salida.ejecucion = await confirmarReunion(x.evento.id, valor);
       } catch (e) {
@@ -343,5 +318,5 @@ export async function unaPasada({ escribir = false, ahora = new Date(), desde = 
     }
     resultados.push(salida);
   }
-  return { leidas: conversaciones.length, reuniones: todas.length, resultados, pisadas };
+  return { leidas: conversaciones.length, reuniones: todas.length, resultados, pisadas: pisadas2 };
 }

@@ -2,8 +2,14 @@
 //
 //   arranque  09:00 lunes a viernes: la auditoría repartida POR PERSONA.
 //             Cada uno abre lo suyo y lo cierra.
-//   cierre    16:30 todos los días: lo que se desvió HOY, para arreglarlo en la
+//   cierre    16:30 lunes a viernes: lo que se desvió, para arreglarlo en la
 //             hora y media que queda antes de irse.
+//
+// El cierre salía TODOS los días hasta el 5-sep-2026. Un sábado a las 16:30 el
+// canal recibió "se desviaron 89 cosas hoy, se pueden arreglar antes de irse"
+// sin que hubiera nadie trabajando. Ahora sale lunes a viernes, y como la foto
+// anterior solo la fija el cierre, el lunes arrastra lo del fin de semana en vez
+// de perderlo: por eso el texto dice "desde el viernes" y no "hoy".
 //
 // La diferencia importa. El de la mañana reparte trabajo de fondo; el de la
 // tarde es corto y urgente. Si los dos contaran el stock acumulado, el canal se
@@ -19,6 +25,27 @@ export function fechaLarga(d = new Date()) {
 
 const punto = (nivel) => (nivel === 'alto' ? '🔴' : '🟠');
 const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+
+/**
+ * Que periodo cubre este cierre, en palabras.
+ *
+ * Casi siempre es "hoy", porque la corrida anterior fue ayer. Pero el lunes la
+ * anterior fue el VIERNES, y decir "hoy" sobre tres dias de acumulacion es
+ * mentir: el equipo lee "89 cosas se desviaron hoy" y entra en panico por algo
+ * que se junto en un fin de semana.
+ *
+ * `desde` es la fecha de la foto anterior. Si no hay, se asume "hoy".
+ */
+export function periodoDesde(desde, ahora = new Date()) {
+  if (!desde) return 'hoy';
+  const d = new Date(desde);
+  if (Number.isNaN(d.getTime())) return 'hoy';
+  const horas = (ahora - d) / 3600000;
+  // 30h y no 24: entre un cierre y el siguiente pasan 24h justas, y cualquier
+  // demora del cron no tiene que cambiar el texto.
+  if (horas <= 30) return 'hoy';
+  return `desde el ${SEMANA[d.getDay()]}`;
+}
 
 /**
  * 09:00 · qué tiene que hacer cada uno.
@@ -90,18 +117,19 @@ function mapa({ activos, filas }) {
  * Es el mensaje corto: lo que apareció en el día y todavía se puede arreglar
  * antes de irse. Si no apareció nada y no se resolvió nada, no se manda.
  */
-export function cierre(evaluadas, { informe } = {}) {
+export function cierre(evaluadas, { informe, desde } = {}) {
   const conNovedad = evaluadas.filter((r) => r.nuevos.length > 0);
   const limpias = evaluadas.filter((r) => r.nuevos.length === 0 && !r.primeraVez);
   const resueltos = evaluadas.reduce((n, r) => n + r.resueltos, 0);
 
   if (!conNovedad.length && !resueltos) return null;
 
+  const periodo = periodoDesde(desde);
   const nuevosTotal = conNovedad.reduce((n, r) => n + r.nuevos.length, 0);
   const l = [`*🩺 Control CRM · ${fechaLarga()}*`];
 
   if (nuevosTotal) {
-    l.push(`*Se desviaron ${plural(nuevosTotal, 'cosa hoy', 'cosas hoy')}.* Se pueden arreglar antes de irse:`, '');
+    l.push(`*Se desviaron ${plural(nuevosTotal, 'cosa', 'cosas')} ${periodo}.* Se pueden arreglar antes de irse:`, '');
     for (const r of conNovedad) {
       l.push(`${punto(r.nivel)} *${r.titulo}* · ${r.nuevos.length} — ${responsableDe(r.clave)}`);
       for (const c of r.nuevos.slice(0, 5)) l.push(`   · <${c.link}|${c.texto}>`);
@@ -110,7 +138,7 @@ export function cierre(evaluadas, { informe } = {}) {
     }
   }
 
-  if (resueltos) l.push(`✅ Hoy se resolvieron *${resueltos}* casos.`, '');
+  if (resueltos) l.push(`✅ Se resolvieron *${resueltos}* casos ${periodo}.`, '');
   if (limpias.length) l.push(`🟢 Sin novedades en: ${limpias.map((r) => r.titulo).join(' · ')}`);
   if (informe) l.push('', `Detalle completo → ${informe}`);
   return l.join('\n');

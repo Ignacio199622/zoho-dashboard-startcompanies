@@ -27,7 +27,7 @@ import { getStore } from '@netlify/blobs';
 import { env } from './entorno.js';
 import { get, conversacionesDesde } from './conversaciones/zoho.js';
 import { LINEAS, LINEA_ACTUAL, lineaDe, mandar, plantilla as armarPlantilla, registrar, enHilo, fusible, estadoDe } from './matias.js';
-import { origenDe, paisDe, PLANTILLAS, nombreDe, plantillaPara, textoDe } from './matias-cerebro.js';
+import { origenDe, origenDeReunion, paisDe, PLANTILLAS, nombreDe, plantillaPara, textoDe } from './matias-cerebro.js';
 import { esHoraDeAbrir, estadoPlantillas, conviveCon786 } from './matias-apertura.js';
 import * as hilo from './hilo.js';
 import { ofrecer } from './matias-agenda.js';
@@ -173,7 +173,8 @@ export async function pasadaNoShow({ ahora = new Date(), enviar = false, horasCa
 
     const nombre = nombreDe(lead, estado);
     let of = { opciones: [], frase: '' };
-    try { of = await ofrecer({ origen: origenDe(lead), numero: tel, dia: '', franja: '', ahora }); } catch (e) { resumen.salteados.push(`${ev.Event_Title}: sin horarios (${e.message})`); }
+    const origen = origenDeReunion(ev.Event_Title) || origenDe(lead);
+    try { of = await ofrecer({ origen, numero: tel, dia: '', franja: '', ahora }); } catch (e) { resumen.salteados.push(`${ev.Event_Title}: sin horarios (${e.message})`); }
     if (!of.opciones.length) { await saltear('sin horarios libres para ofrecer'); continue; }
     const { clave: claveTexto, plantilla } = cancelada
       ? { clave: 'cancelada', plantilla: plantillaPara('cancelada', tel, plantillas) }
@@ -185,7 +186,7 @@ export async function pasadaNoShow({ ahora = new Date(), enviar = false, horasCa
     const sale = enviarPorLinea && aprobada;
     await registrar({ numero: digitos(tel), de: 'matias', texto: `${sale ? '' : `[${que.toUpperCase()} PROPUESTO, no enviado] `}${texto}`, cuando: ahora });
     if (!sale) {
-      await enHilo(digitos(tel), `💡 ${que} *${origenDe(lead)}* propuesto (no se mandó: ${!enviar ? 'MATIAS_ENVIAR apagado' : !(salud.ok || salud.cuidado) ? `fusible, ${salud.motivo}` : `plantilla ${plantilla} en estado ${plantillas[plantilla] || 'inexistente'}`}). Reunión: ${ev.Event_Title} · ${ev.Start_DateTime}`);
+      await enHilo(digitos(tel), `💡 ${que} *${origen}* propuesto (no se mandó: ${!enviar ? 'MATIAS_ENVIAR apagado' : !(salud.ok || salud.cuidado) ? `fusible, ${salud.motivo}` : `plantilla ${plantilla} en estado ${plantillas[plantilla] || 'inexistente'}`}). Reunión: ${ev.Event_Title} · ${ev.Start_DateTime}`);
       await store.set(clave, `propuesta ${ahora.toISOString()}`);
       resumen.propuestos++;
       continue;
@@ -199,7 +200,7 @@ export async function pasadaNoShow({ ahora = new Date(), enviar = false, horasCa
       // reserve cuando conteste. Este mensaje es el toque 1 de la cadencia corta
       // de no-show (ver matias-seguimiento.js); `sinSeguimiento` se levanta porque
       // la confirmación previa de esta misma reunión lo había puesto.
-      await store.setJSON(`apertura-${claveTel(tel)}`, { ...estado, enviada: estado.enviada || ahora.toISOString(), origen: estado.origen || origenDe(lead), lead: lead.id, noshow: { evento: ev.id, titulo: ev.Event_Title, inicio: ev.Start_DateTime, tocado: ahora.toISOString() }, ofrecidos: of.opciones, linea, toques: 1, ultimoToque: ahora.toISOString(), sinSeguimiento: undefined, cerrado: undefined, cerradoEl: undefined });
+      await store.setJSON(`apertura-${claveTel(tel)}`, { ...estado, enviada: estado.enviada || ahora.toISOString(), origen: origenDeReunion(ev.Event_Title) || estado.origen || origenDe(lead), lead: lead.id, noshow: { evento: ev.id, titulo: ev.Event_Title, inicio: ev.Start_DateTime, tocado: ahora.toISOString() }, ofrecidos: of.opciones, linea, toques: 1, ultimoToque: ahora.toISOString(), sinSeguimiento: undefined, cerrado: undefined, cerradoEl: undefined });
       await store.setJSON(clave, { enviada: ahora.toISOString(), lead: lead.id, tel: digitos(tel) });
       await enHilo(digitos(tel), `${cancelada ? '🗓️ Se canceló' : '📵 No asistió a'} *${ev.Event_Title}* (${ev.Start_DateTime}). Matías le escribió${linea !== lineaPropia ? ' por la línea actual (la suya está caída)' : ''}; si contesta, le ofrece horarios y reserva. Si no, un seguimiento corto: +1 día y +3 días.`);
       resumen.tocados++;
