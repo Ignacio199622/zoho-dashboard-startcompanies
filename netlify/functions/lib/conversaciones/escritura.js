@@ -806,6 +806,9 @@ export async function programarRecordatorio3h(eventId, cuando2) {
  * cliente, y `canceladas()` descarta esos titulos: sin la marca, liberar el hueco
  * apagaba todo el seguimiento (24 h, 72 h, no-show). 'Cancelada' es un valor que el
  * modulo ya trataba como "sigue siendo nuestra" (ver el paso 1 de unaPasada).
+ * SIN USO desde el 30-oct-2026: el blueprint "status Meeting" no tiene transicion a
+ * 'Cancelada' y la API siempre la rebotaba (RECORD_IN_BLUEPRINT). cancelaciones.js ahora
+ * distingue por el orden No asiste → [CANCELADA] en el timeline.
  */
 export async function marcarCancelada(eventId) {
   const r = await put('Events', { data: [{ id: eventId, Status_del_Meet: 'Cancelada' }], trigger: [] });

@@ -134,7 +134,7 @@ export default async (req) => {
       const dijo = String(x.conversacion.last_message__s).trim().slice(0, 40);
       // Desde el 14-oct-2026 se cancela como un "No": lo sigue cancelaciones.js (24 h, 48 h, Matias).
       if (seco) lineasReprog.push(`:eyes: *Modo sombra:* cancelaria la reunion ${cuando(x)} de ${quien(x)}, que pidio reprogramar (dijo "${dijo}") · <${linkReunion(x.evento.id)}|ver reunion>`);
-      else if (x.ejecucion?.ok) lineasReprog.push(`:arrows_counterclockwise: ${quien(x)} pidio reprogramar su reunion ${cuando(x)} ("${dijo}"): la cancele y Zoho le mando el link para elegir otro horario. Si no reserva, a las 24 h se le pregunta y a las 48 h la toma Matias. No le contesten a mano · <${linkReunion(x.evento.id)}|ver reunion>`);
+      else if (x.ejecucion?.ok) lineasReprog.push(`:arrows_counterclockwise: ${quien(x)} pidio reprogramar su reunion ${cuando(x)} ("${dijo}"): la cancele y Zoho le mando el link para elegir otro horario. Si no reserva, a las 24 h se le pregunta y a las 48 h la toma Matias. Si quieren arreglar otro horario con el, *reservenlo en Cal* (no solo por chat): si no, no hay reunion ni link ni recordatorios. Si escribe, aviso aca · <${linkReunion(x.evento.id)}|ver reunion>`);
       else lineasReprog.push(`:rotating_light: ${quien(x)} pidio reprogramar su reunion ${cuando(x)} y no pude cancelarla (${x.ejecucion?.error || `quedo "${x.ejecucion?.quedo}"`}). Ponele "No asiste" en Confirmacion a mano · <${linkReunion(x.evento.id)}|ver reunion>`);
     }
     // El que pidio reprogramar, no la movio y no vino: No asistio solo, y arranca Matias.
@@ -210,7 +210,7 @@ export default async (req) => {
     // Despues, el seguimiento de los que dijeron "No" (ver cancelaciones.js):
     // "¿pudiste encontrar otro horario?" a las 24 h, "No asistio" a las 72 h (y con la
     // reunion ya pasada), que es lo que hace arrancar la cadencia de no-show de Matias.
-    let canc = { vistas: 0, liberadas: [], recordadas: [], noShow: [], reservaron: [], esperando: [], fallidas: [] };
+    let canc = { vistas: 0, liberadas: [], recordadas: [], noShow: [], reservaron: [], esperando: [], fallidas: [], fuera: [], escribieron: [] };
     try {
       canc = await cancelacionesPasada({ escribir: !seco, ahora });
       if (canc.vistas) {
@@ -231,6 +231,17 @@ export default async (req) => {
           lineas.push(`:white_check_mark: ${nombreDe(x.evento)} dijo que no y ya reservo de nuevo (${x.nueva.Start_DateTime}): no se lo persigue · <${linkReunion(x.nueva.id)}|ver reunion nueva>`);
         }
         for (const x of canc.fallidas) lineas.push(`:rotating_light: Seguimiento del No de ${nombreDe(x.evento)}, paso ${x.paso}: ${x.error} · <${linkReunion(x.evento.id)}|ver reunion>`);
+        // Despues del No, sin reserva nueva: escribio el lead, o alguien del equipo le
+        // prometio una reunion por chat sin reservarla en Cal (Marcelo, 30-oct).
+        for (const x of canc.escribieron || []) {
+          const clave = `postno:${x.evento.id}:${x.cuando}`;
+          if (avisados.has(clave)) continue;
+          avisados.add(clave);
+          const dijo = x.texto.slice(0, 120);
+          lineas.push(x.quien === 'lead'
+            ? `:speech_balloon: ${nombreDe(x.evento)} canceló/pidió reprogramar y después escribió "${dijo}". *No tiene reserva nueva*: contéstenle y, si arreglan horario, resérvenlo en Cal · <${linkReunion(x.evento.id)}|ver reunion>`
+            : `:rotating_light: A ${nombreDe(x.evento)} alguien del equipo le escribió "${dijo}", pero *no hay ninguna reserva en Cal*: no le va a llegar link ni recordatorio. Resérvenle ese horario en Cal ya · <${linkReunion(x.evento.id)}|ver reunion>`);
+        }
         if (lineas.length) await aSlack(lineas.join('\n'));
       }
     } catch (e) {

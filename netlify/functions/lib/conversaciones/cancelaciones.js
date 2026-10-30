@@ -21,9 +21,9 @@
 //      este modulo solo escribe la hora, igual que con el Si/No.
 //   0. Se cancela la reserva en Cal, apenas se ve el "No". Es lo unico que libera el
 //      hueco de verdad: borrar el evento de Google deja el agujero en el calendario
-//      pero Cal sigue sin ofrecerlo (medido el 22 y 23-sep-2026, ver cal.js). Queda
-//      marcada con Status_del_Meet = 'Cancelada' para que el [CANCELADA] que le pone
-//      el Flow de Cal no la saque de este mismo seguimiento.
+//      pero Cal sigue sin ofrecerlo (medido el 22 y 23-sep-2026, ver cal.js). El
+//      [CANCELADA] que le pone despues el Flow de Cal no la saca de este seguimiento:
+//      ver `nuestra` mas abajo (desde el 30-oct se mira el orden en el timeline).
 //   3. A las 72 h, si sigue sin reservar Y la reunion ya paso: se marca
 //      Status_del_Meet = "No asistio" y la levanta lib/matias-noshow.js, que le
 //      ofrece horarios y le reserva (3 toques y cierra). Hasta el 22-sep-2026 este
@@ -41,7 +41,7 @@
 // cancelada; son pocas).
 import { get } from './zoho.js';
 import { sinMadrugada } from './agendar-recordatorios.js';
-import { programarRecordatorioCancelacion, marcarNoShow, marcarCancelada, ESTADOS_YA_FUERA } from './escritura.js';
+import { programarRecordatorioCancelacion, marcarNoShow, ESTADOS_YA_FUERA } from './escritura.js';
 import { reservaViva, cancelarReserva } from './cal.js';
 
 
@@ -59,10 +59,20 @@ const isoZoho = (d) => d.toISOString().slice(0, 19) + '+00:00';
 const cerrada = (e) => /^\[(CANCELADA|REAGENDADA)\]/.test(e.Event_Title || '');
 // Cuando NOSOTROS cancelamos en Cal para liberar el hueco, el Flow le pone [CANCELADA] al
 // titulo igual que a una cancelacion del cliente. Sin distinguirlas, liberar el hueco
-// apagaba el seguimiento entero. La marca propia es Status_del_Meet = 'Cancelada'.
+// apagaba el seguimiento entero. Hasta el 30-oct la marca propia era Status_del_Meet =
+// 'Cancelada', pero el blueprint "status Meeting" no tiene esa transicion (solo Asistio /
+// No asistio / Asistio sin interes) y la API la rebotaba con RECORD_IN_BLUEPRINT en cada
+// cancelacion: la marca nunca se puso y el seguimiento del No quedaba apagado (Marcelo,
+// 30-oct). Ahora se mira el timeline: es "nuestra" si el No asiste llego ANTES del
+// [CANCELADA]. Si el titulo cambio primero (el cliente cancelo en Cal) o a la vez (lo libero
+// liberar-sin-confirmar.js, que escribe las dos cosas juntas), no se la persigue.
 const nuestra = (e) => e.Status_del_Meet === 'Cancelada';
-// [REAGENDADA] siempre queda afuera: ya hay otra reunion. [CANCELADA] solo si no es nuestra.
-const fueraDeJuego = (e) => /^\[REAGENDADA\]/.test(e.Event_Title || '') || (/^\[CANCELADA\]/.test(e.Event_Title || '') && !nuestra(e));
+const reagendada = (e) => /^\[REAGENDADA\]/.test(e.Event_Title || '');
+const conTituloCancelada = (e) => /^\[CANCELADA\]/.test(e.Event_Title || '');
+// Las canceladas por nosotros ANTES del arreglo (21 al 29-oct) quedaron sin seguimiento y
+// las tomo Matias por canceladasRecientes: no se les manda ahora, dias tarde, el "¿pudiste
+// encontrar otro horario?". El orden del timeline vale para los No desde esta fecha.
+const DESDE_ORDEN_TIMELINE = new Date('2026-10-30T12:00:00Z');
 
 /** Reuniones de venta con "No asiste" (colgadas de un lead), de -10 a +30 dias. 1 llamada. */
 export async function canceladas(ahora = new Date()) {
@@ -75,7 +85,7 @@ export async function canceladas(ahora = new Date()) {
     out.push(...(j.data || []));
     if (!j.info?.more_records) break;
   }
-  return out.filter((e) => e.Tipo_de_reuni_n !== 'Clientes' && e.What_Id?.id && !fueraDeJuego(e));
+  return out.filter((e) => e.Tipo_de_reuni_n !== 'Clientes' && e.What_Id?.id && !reagendada(e));
 }
 
 /**
@@ -89,10 +99,12 @@ export async function marcasDelNo(eventId) {
   const lista = t.__timeline || [];
   const cambio = (a, campo, valor) => (a.field_history || []).some((f) => f.api_name === campo && (valor === void 0 || f._value?.new === valor));
   const no = lista.find((a) => cambio(a, "Confirmaci_n", "No asiste"));
-  if (!no) return { dijoNo: null, recordadoDespues: false };
+  const titulo = lista.find((a) => (a.field_history || []).some((f) => f.api_name === "Event_Title" && /^\[CANCELADA\]/.test(f._value?.new || "") && !/^\[CANCELADA\]/.test(f._value?.old || "")));
+  const canceladaEn = titulo ? new Date(titulo.audited_time) : null;
+  if (!no) return { dijoNo: null, recordadoDespues: false, canceladaEn };
   const dijoNo = new Date(no.audited_time);
   const recordadoDespues = lista.some((a) => new Date(a.audited_time) > dijoNo && cambio(a, "Hora_de_recordatorio"));
-  return { dijoNo, recordadoDespues };
+  return { dijoNo, recordadoDespues, canceladaEn };
 }
 
 /** ¿Reservo otra reunion despues del "No"? Una futura, viva, creada despues de esa hora. 1 llamada. */
@@ -107,6 +119,28 @@ export async function reservoDeNuevo(leadId, despues, ahora = new Date()) {
 }
 
 /**
+ * Despues del "No" y sin reserva nueva, ¿alguien escribio en el chat? (30-oct-2026, Marcelo:
+ * toco "Necesito reprogramar", el aviso de Slack decia "no le contesten a mano", y a las 2 h
+ * alguien del equipo le escribio "agende la reunion para las 3.30 Colombia, nos vemos" sin
+ * reservarla en Cal: no hubo reunion, ni link, ni recordatorios, y nadie se entero.)
+ * Zoho guarda solo el ultimo mensaje del chat: `Responded` = lo escribio el lead,
+ * `Replied` = salio de nuestro lado (plantilla o a mano). 1 llamada.
+ *   - lead: escribio algo despues del No → que lo lea una persona.
+ *   - equipo: un mensaje nuestro que no es plantilla y promete una reunion → falta la reserva.
+ */
+const PLANTILLA = /te escribimos de Start Companies|startcompanies\.io\/agendar|pudiste encontrar otro horario|liberamos (ese|el) horario|recorda(r|á) responder|Gracias por confirmar/i;
+const PROMETE = /\bagend[eéo]\b|te (la )?agend|qued[oó] agendad|\breserv[eé]\b|nos vemos|te espero|te esperamos|\b\d{1,2}([:.]\d{2})?\s*(hs|h\b|am|pm|colombia|m[eé]xico|argentina|per[uú]|chile|espa[ñn]a|bogot[aá])/i;
+export async function escribioDespues(leadId, dijoNo) {
+  const j = await get(`Leads/${leadId}/messages__s?fields=id,last_message__s,message_time__s,conversation_status__s,mobile_number__s&per_page=5`).catch(() => ({}));
+  const m = (j.data || []).sort((a, b) => String(b.message_time__s).localeCompare(String(a.message_time__s)))[0];
+  if (!m || !m.message_time__s || new Date(m.message_time__s) <= dijoNo) return null;
+  const texto = String(m.last_message__s || '').replace(/\s+/g, ' ').trim();
+  if (m.conversation_status__s === 'Responded') return { quien: 'lead', texto, cuando: m.message_time__s };
+  if (!PLANTILLA.test(texto) && PROMETE.test(texto)) return { quien: 'equipo', texto, cuando: m.message_time__s };
+  return null;
+}
+
+/**
  * Una pasada. Con escribir=false solo cuenta lo que haria. `horas` acorta los plazos
  * para probar con una reunion real sin esperar un dia; `solo` limita a una reunion.
  */
@@ -117,23 +151,27 @@ export async function unaPasada({
   solo = null
 } = {}) {
   const lista = (await canceladas(ahora)).filter((e) => !solo || e.id === solo);
-  const r = { vistas: lista.length, liberadas: [], recordadas: [], noShow: [], reservaron: [], esperando: [], fallidas: [] };
+  const r = { vistas: lista.length, liberadas: [], recordadas: [], noShow: [], reservaron: [], esperando: [], fallidas: [], fuera: [], escribieron: [] };
   const H2 = 36e5;
   for (const e of lista) {
     const fila = { evento: e };
     try {
-      const { dijoNo, recordadoDespues } = await marcasDelNo(e.id);
+      const { dijoNo, recordadoDespues, canceladaEn } = await marcasDelNo(e.id);
       if (!dijoNo) {
         r.esperando.push({ ...fila, motivo: "sin fecha del No en el timeline" });
         continue;
       }
       fila.dijoNo = dijoNo;
+      if (conTituloCancelada(e) && !nuestra(e) && !(canceladaEn && canceladaEn > dijoNo && dijoNo >= DESDE_ORDEN_TIMELINE)) {
+        r.fuera.push({ ...fila, motivo: "la cancelo el cliente en Cal o la libero el agente" });
+        continue;
+      }
       const tz = e.Zona_horaria_del_cliente || TZ_DEFECTO;
       if (e.Status_del_Meet && e.Status_del_Meet !== "Cancelada") {
         r.esperando.push({ ...fila, motivo: `estatus ${e.Status_del_Meet}` });
         continue;
       }
-      if (!nuestra(e) && new Date(e.Start_DateTime) > ahora) {
+      if (!conTituloCancelada(e) && new Date(e.Start_DateTime) > ahora) {
         const reserva = await reservaViva(e.Start_DateTime, e).catch((err) => {
           fila.avisoCal = err.message;
           return null;
@@ -143,11 +181,6 @@ export async function unaPasada({
             const c = await cancelarReserva(reserva.uid, "El cliente avis\xF3 que no puede asistir", reserva._cuenta);
             if (!c.ok) {
               r.fallidas.push({ ...fila, paso: "liberar hueco", error: c.error });
-              continue;
-            }
-            const m = await marcarCancelada(e.id);
-            if (!m.ok) {
-              r.fallidas.push({ ...fila, paso: "marcar Cancelada", error: m.error || `quedo ${m.quedo}` });
               continue;
             }
           }
@@ -160,6 +193,8 @@ export async function unaPasada({
         r.reservaron.push({ ...fila, nueva });
         continue;
       }
+      const escrito = await escribioDespues(e.What_Id.id, dijoNo).catch(() => null);
+      if (escrito) r.escribieron.push({ ...fila, ...escrito });
       const pasaron = (ahora - dijoNo) / H2;
       const yaRecordado = recordadoDespues;
       if (!yaRecordado && pasaron >= horas.recordatorio) {
