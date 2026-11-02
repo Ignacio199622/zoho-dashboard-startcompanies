@@ -29,14 +29,15 @@ import { getStore } from '@netlify/blobs';
 import { env } from './entorno.js';
 import { get } from './conversaciones/zoho.js';
 import { conversacionesDesde } from './conversaciones/zoho.js';
-import { candadoCliente, buscarCliente } from './matias-cliente.js';
+import { candadoCliente, buscarCliente, exento } from './matias-cliente.js';
+import { candadoSocio, fuenteExtra } from './matias-candados.js';
 import { LINEA_ACTUAL, LINEAS, WABA, mandar, plantilla as armarPlantilla, registrar, enHilo, saludDelNumero, etiquetarLead, ETIQUETA_CONTACTADO } from './matias.js';
-import { origenDe, PLANTILLAS, paisDe, plantillaPara, textoDe, conBotones } from './matias-cerebro.js';
+import { origenDe, PLANTILLAS, paisDe, plantillaPara, textoDe, conBotones, registroDe } from './matias-cerebro.js';
 import * as hilo from './hilo.js';
 
 const SOCIAL_ID = 'leadchain0__Social_Lead_ID';
 const CAMPOS = ['id', 'Full_Name', 'First_Name', 'Mobile', 'Phone', 'Created_Time', 'Lead_Status', 'Tag', 'Tipo',
-  'Nombre_retargeting', 'reserva', 'Calendario', 'Email', SOCIAL_ID].join(',');
+  'Nombre_retargeting', 'reserva', 'Calendario', 'Email', 'Lead_Source', 'Landing_Origen', 'Idioma', SOCIAL_ID].join(',');
 const ESPERA_MIN = 5;
 // Cuánto para atrás se mira. 24 h y no 90 min: el lead que entra a las 2 de la
 // mañana recibe su apertura a las 9, y una carga a mano de la tarde que quedó
@@ -67,13 +68,16 @@ export const esHoraDeAbrir = (ahora = new Date()) => { const h = horaArgentina(a
 // form Noviembre cargados a mano, en ráfaga, sin Social Lead ID, y Matías no
 // los vio. Lead Chain dejó de empujar ese formulario el 4-sep.
 const esDeFormulario = (l) => Boolean(l[SOCIAL_ID]) || (l.Tag || []).some((t) => /^form\s/i.test(t.name || t));
+// Las fuentes extra (2-nov-2026): web/SEO, landings, YouTube, WhatsApp sin origen, marca
+// personal, referidos y chatbot. Apagadas salvo MATIAS_FUENTES_EXTRA_ENABLED (matias-candados.js).
+const fuenteDe = (l) => (esDeFormulario(l) ? '' : fuenteExtra(l));
 
 /** Los leads de formulario de las últimas VENTANA_MIN, del más viejo al más nuevo. */
 export async function leadsNuevos(ahora = new Date()) {
   const desde = new Date(ahora - VENTANA_MIN * 60000);
   const j = await get(`Leads?fields=${CAMPOS}&sort_by=Created_Time&sort_order=desc&per_page=200`);
   return (j.data || [])
-    .filter((l) => esDeFormulario(l) && new Date(l.Created_Time) >= desde)
+    .filter((l) => (esDeFormulario(l) || fuenteDe(l)) && new Date(l.Created_Time) >= desde)
     .reverse();
 }
 
@@ -268,13 +272,25 @@ export async function pasada({ ahora = new Date(), enviar = false } = {}) {
     const motivo786 = conviveCon786(conversaciones, tel);
     if (motivo786) { saltear(motivo786); await store.set(clave, `786: ${motivo786}`); continue; }
 
+    // El candado de socio (2-nov-2026): el lead mismo dice que es de un socio o tiene el envío
+    // bloqueado. El "Posible Partner" sí se abre. Los números de prueba pasan.
+    const socio = exento(tel) ? '' : candadoSocio(lead);
+    if (socio) { saltear(`cliente de socio: ${socio}`); await store.set(clave, `socio: ${socio}`); continue; }
+
     // El candado de cliente: teléfono (con variantes), mail y nombre contra
     // Contactos, Propietarios de LLC y LLCs. Samah (jun-2026) tenía otro número
     // en su ficha de cliente y solo el nombre la delataba.
     const cliente = await candadoCliente(tel, { nombre: lead.Full_Name, email: lead.Email, ahora });
-    if (cliente.es) { saltear(`ya es cliente: ${cliente.quien} (${cliente.como})`); await store.set(clave, `cliente: ${cliente.quien}`); continue; }
+    if (cliente.es) { saltear(cliente.socio ? `cliente de socio: ${cliente.quien} (${cliente.socio})` : `ya es cliente: ${cliente.quien} (${cliente.como})`); await store.set(clave, `${cliente.socio ? 'socio' : 'cliente'}: ${cliente.quien}`); continue; }
 
     const origen = origenApertura(lead);
+    // La plantilla sale por `origen` (las fuentes extra usan la de LLC, 'meta'); `fuente` es para el reporte.
+    const fuente = fuenteDe(lead);
+    // Idioma: la plantilla va por el país del teléfono. Si el lead de una fuente extra dice
+    // inglés (no hay plantillas en inglés) o portugués con un teléfono que no es de Brasil, no
+    // se abre en español. Sin marca: si mañana hay plantilla, se reintenta.
+    if (fuente && /english|ingl/i.test(String(lead.Idioma || ''))) { saltear('inglés: sin plantilla en inglés'); continue; }
+    if (fuente && /portugu/i.test(String(lead.Idioma || '')) && registroDe(tel) !== 'pt') { saltear('portugués con teléfono fuera de Brasil'); continue; }
     const plantilla = plantillaPara(origen, tel, plantillas);
     // Brasil (pt) sin gemela _pt aprobada: no se abre (nunca en español). Sin marca: se reintenta.
     if (!plantilla) { saltear('portugués: sin plantilla _pt aprobada'); continue; }
@@ -296,11 +312,11 @@ export async function pasada({ ahora = new Date(), enviar = false } = {}) {
     }
     // Registrar abre el hilo de #sdr y deja la nota. Se hace antes de mandar
     // para que, si Meta falla, quede el rastro de que se intentó.
-    const r = await registrar({ numero: digitos(tel), de: 'matias', texto: `${enviar && plantillas[plantilla] === 'APPROVED' ? '' : '[APERTURA PROPUESTA, no enviada] '}${texto}`, cuando: ahora, apertura: { tipo: esViejo ? 'viejo' : 'nuevo', origen, creado: lead.Created_Time } });
+    const r = await registrar({ numero: digitos(tel), de: 'matias', texto: `${enviar && plantillas[plantilla] === 'APPROVED' ? '' : '[APERTURA PROPUESTA, no enviada] '}${texto}`, cuando: ahora, apertura: { tipo: esViejo ? 'viejo' : 'nuevo', origen: fuente || origen, creado: lead.Created_Time } });
 
     if (!enviar || plantillas[plantilla] !== 'APPROVED') {
       const porQue = !enviar ? (salud.ok ? 'MATIAS_ENVIAR apagado' : `fusible, ${salud.motivo}`) : `plantilla ${plantilla} en estado ${plantillas[plantilla] || 'inexistente'}`;
-      await enHilo(digitos(tel), `💡 Apertura *${origen}* propuesta (no se mandó: ${porQue}).`);
+      await enHilo(digitos(tel), `💡 Apertura *${fuente || origen}* propuesta (no se mandó: ${porQue}).`);
       await store.set(clave, `propuesta ${ahora.toISOString()}`);
       resumen.propuestos++;
       continue;
@@ -314,7 +330,7 @@ export async function pasada({ ahora = new Date(), enviar = false } = {}) {
       abiertosHoy++;
       await store.set(claveDia, String(abiertosHoy));
       await hilo.agregar(digitos(tel), 'nosotros', texto, ahora);
-      await store.setJSON(clave, { enviada: ahora.toISOString(), origen, plantilla, lead: lead.id, toques: 1, linea: LINEA_ACTUAL, ...(esViejo ? { barrido: etiquetaMes(lead.Created_Time) } : {}) });
+      await store.setJSON(clave, { enviada: ahora.toISOString(), origen, ...(fuente ? { fuente } : {}), plantilla, lead: lead.id, toques: 1, linea: LINEA_ACTUAL, ...(esViejo ? { barrido: etiquetaMes(lead.Created_Time) } : {}) });
       resumen.abiertos++;
       // La marca de "Matías lo empujó" en Zoho: etiqueta, sin tocar fuente ni landing.
       const et = await etiquetarLead(lead.id, ETIQUETA_CONTACTADO, lead.Tag);
@@ -366,8 +382,10 @@ export async function previaBarrido(desde, hasta = null, todos = false) {
     if (PERDIDO.test(String(lead.Lead_Status || ''))) { no(`estado ${lead.Lead_Status}`); continue; }
     const motivo786 = conviveCon786(conversaciones, tel);
     if (motivo786) { no(motivo786); continue; }
+    const socio = exento(tel) ? '' : candadoSocio(lead);
+    if (socio) { no(`cliente de socio: ${socio}`); continue; }
     const cliente = await buscarCliente({ numero: tel, nombre: lead.Full_Name, email: lead.Email });
-    if (cliente.es) { no(`ya es cliente: ${cliente.quien} (${cliente.como})`); continue; }
+    if (cliente.es) { no(cliente.socio ? `cliente de socio: ${cliente.quien} (${cliente.socio})` : `ya es cliente: ${cliente.quien} (${cliente.como})`); continue; }
     out.abrir.push(ficha);
   }
   return out;

@@ -24,6 +24,7 @@ import { claveTel } from './tel-clave.js';
 import { getStore } from '@netlify/blobs';
 import { env } from './entorno.js';
 import { get } from './conversaciones/zoho.js';
+import { candadoSocio } from './matias-candados.js';
 
 const almacen = () => getStore({ name: 'matias', consistency: 'strong' });
 const digitos = (n) => String(n || '').replace(/\D/g, '');
@@ -34,7 +35,7 @@ const NO_ES_CLIENTE_VALE_H = 24;
 export const normalizar = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 
 /** Para probar: `MATIAS_NUMEROS_PRUEBA=5493814727017,...` en Netlify saltea el candado en esos números. */
-const exento = (numero) => (env.MATIAS_NUMEROS_PRUEBA || '').split(',').map(digitos).filter(Boolean).includes(digitos(numero));
+export const exento = (numero) => (env.MATIAS_NUMEROS_PRUEBA || '').split(',').map(digitos).filter(Boolean).includes(digitos(numero));
 
 /**
  * Las formas en que ese mismo teléfono puede estar guardado: con y sin `+`, y
@@ -61,12 +62,15 @@ async function buscar(modulo, query, campos) {
 }
 
 const quienEs = (modulo, r) => {
+  if (modulo === 'Leads') return `lead ${r.Full_Name}`;
   if (modulo === 'Contacts') return `${r.Full_Name}${r.Account_Name?.name ? ` (${r.Account_Name.name})` : ''}`;
   if (modulo === 'Propietarios_LLC') return `${r.Name}${r.LLC?.name ? ` (${r.LLC.name})` : ''}`;
   return `LLC ${r.Account_Name}`;
 };
 // El módulo de propietarios es custom y su URL no se adivina: link solo para Contactos y LLCs.
 const linkDe = (modulo, id) => (modulo === 'Propietarios_LLC' ? '' : `https://crm.zoho.com/crm/org881745849/tab/${modulo}/${id}`);
+// Campos del candado de socio (2-nov-2026): la ficha hallada dice además si es de un socio.
+const CAMPOS_SOCIO = { Contacts: ',Bloqueo_de_envio,Tipo_de_Contacto', Accounts: ',Socio,Bloqueo_de_envio', Propietarios_LLC: '' };
 
 /**
  * Busca a la persona en Zoho. Devuelve `{ es, como, quien, modulo, id }`.
@@ -75,7 +79,10 @@ const linkDe = (modulo, id) => (modulo === 'Propietarios_LLC' ? '' : `https://cr
  */
 export async function buscarCliente({ numero, nombre = '', email = '' }) {
   const variantes = variantesDe(numero);
-  const hallado = (modulo, r, como) => ({ es: true, como, quien: quienEs(modulo, r), modulo, id: r.id, link: linkDe(modulo, r.id) });
+  const hallado = (modulo, r, como) => {
+    const socio = candadoSocio(r);
+    return { es: true, como, quien: quienEs(modulo, r), modulo, id: r.id, link: linkDe(modulo, r.id), ...(socio ? { socio } : {}) };
+  };
 
   // 1. Teléfono, en los tres módulos.
   if (variantes.length) {
@@ -84,7 +91,7 @@ export async function buscarCliente({ numero, nombre = '', email = '' }) {
       ['Propietarios_LLC', ['Tel_fono'], 'id,Name,LLC'],
       ['Accounts', ['Phone'], 'id,Account_Name'],
     ]) {
-      const r = (await buscar(modulo, `criteria=${c(criterioTelefono(campos, variantes))}`, fields))[0];
+      const r = (await buscar(modulo, `criteria=${c(criterioTelefono(campos, variantes))}`, fields + CAMPOS_SOCIO[modulo]))[0];
       if (r) return hallado(modulo, r, 'teléfono');
     }
   }
@@ -96,7 +103,7 @@ export async function buscarCliente({ numero, nombre = '', email = '' }) {
       ['Contacts', ['Email', 'Secondary_Email'], 'id,Full_Name,Account_Name'],
       ['Propietarios_LLC', ['Email', 'Secondary_Email'], 'id,Name,LLC'],
     ]) {
-      const r = (await buscar(modulo, `criteria=${c(`(${campos.map((f) => `(${f}:equals:${mail})`).join('or')})`)}`, fields))[0];
+      const r = (await buscar(modulo, `criteria=${c(`(${campos.map((f) => `(${f}:equals:${mail})`).join('or')})`)}`, fields + CAMPOS_SOCIO[modulo]))[0];
       if (r) return hallado(modulo, r, 'mail');
     }
   }
@@ -126,6 +133,14 @@ export async function buscarCliente({ numero, nombre = '', email = '' }) {
       if (mismos.length && personas.size === 1) return hallado(mismos[0].modulo, mismos[0].r, 'nombre de pila único');
     }
   }
+
+  // 4. El candado de socio en los leads con ese teléfono (2-nov-2026). No es cliente
+  // nuestro, pero si algún lead suyo es de un socio, no se le escribe.
+  if (variantes.length) {
+    for (const r of await buscar('Leads', `criteria=${c(criterioTelefono(['Mobile', 'Phone'], variantes))}`, 'id,Full_Name,Tipo,Lead_Source,Tag')) {
+      if (candadoSocio(r)) return hallado('Leads', r, 'teléfono');
+    }
+  }
   return { es: false };
 }
 
@@ -144,10 +159,11 @@ export async function candadoCliente(numero, { nombre = '', email = '', ficha = 
   if (previo?.es) return previo;
   // Un "no" reciente vale, salvo que antes se buscó solo por teléfono y ahora hay nombre o mail.
   const reciente = previo?.chequeado && ahora - new Date(previo.chequeado) < NO_ES_CLIENTE_VALE_H * 3600000;
-  if (reciente && (previo.conDatos || !(nombre || email))) return previo;
+  // `socios`: un "no" de antes del candado de socio (2-nov-2026) no miraba los leads; se vuelve a buscar.
+  if (reciente && previo.socios && (previo.conDatos || !(nombre || email))) return previo;
 
   const r = await buscarCliente({ numero, nombre, email });
-  const cliente = { ...r, chequeado: ahora.toISOString(), conDatos: Boolean(nombre || email) };
+  const cliente = { ...r, chequeado: ahora.toISOString(), conDatos: Boolean(nombre || email), socios: true };
   const actual = (await store.get(k, { type: 'json' }).catch(() => null)) || {};
   const base = actual && typeof actual === 'object' ? actual : {};
   await store.setJSON(k, r.es
@@ -156,5 +172,20 @@ export async function candadoCliente(numero, { nombre = '', email = '', ficha = 
   return cliente;
 }
 
+/**
+ * Lo que escribe una persona desde el portal no se frena (la decisión es suya), pero
+ * si es cliente o cliente de socio queda en el log. Solo lee: no toca la ficha.
+ */
+export async function avisoHumano(numero) {
+  if (exento(numero)) return null;
+  const ficha = await almacen().get(`apertura-${claveTel(numero)}`, { type: 'json' }).catch(() => null);
+  const previo = ficha && typeof ficha === 'object' ? ficha.cliente : null;
+  const cliente = previo?.es ? previo : await buscarCliente({ numero }).catch(() => null);
+  if (cliente?.es) console.log(`[matias] AVISO: una persona le escribe a +${digitos(numero)} y ${cliente.socio ? `es de socio (${cliente.socio})` : 'es cliente'}: ${cliente.quien}. No se frena.`);
+  return cliente?.es ? cliente : null;
+}
+
 /** Texto para el hilo de Slack y la nota de Zoho. */
-export const explicar = (cliente) => `🔒 Es cliente: ${cliente.quien} (coincide ${cliente.como}). Matías no le escribe; queda para el equipo. ${cliente.link ? `<${cliente.link}|ver ficha>` : ''}`.trim();
+export const explicar = (cliente) => cliente.socio
+  ? `🔒 No se le escribe: ${cliente.quien} (${cliente.socio}). Regla de oro: a los clientes de socios no les llega nada nuestro. ${cliente.link ? `<${cliente.link}|ver ficha>` : ''}`.trim()
+  : `🔒 Es cliente: ${cliente.quien} (coincide ${cliente.como}). Matías no le escribe; queda para el equipo. ${cliente.link ? `<${cliente.link}|ver ficha>` : ''}`.trim();

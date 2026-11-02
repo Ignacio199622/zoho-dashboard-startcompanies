@@ -26,7 +26,7 @@ import { leadsConTelefono } from './conversaciones/escritura.js';
 import { agregarNota } from './escribir.js';
 import { token as tokenZoho } from './conversaciones/zoho.js';
 import { reflejar as reflejarEnPortal } from './portal.js';
-import { candadoCliente, explicar as explicarCliente } from './matias-cliente.js';
+import { candadoCliente, avisoHumano, explicar as explicarCliente } from './matias-cliente.js';
 
 /*
  * ─── EL QUE ESCRIBE PRIMERO (click-to-WhatsApp) ────────────────────────────
@@ -176,12 +176,16 @@ export async function mandar(numero, cuerpo, { linea = null, humano = false } = 
   // acá porque es la única puerta a Meta: ninguna apertura, seguimiento,
   // confirmación ni respuesta puede saltearlo. `humano` es para lo que escribe
   // una persona desde el portal por la línea de Matías: esa decisión es suya.
+  // Desde el 2-nov también frena al cliente de un socio (Bloqueo_de_envio, Socio,
+  // Partner): ver matias-candados.js. A la persona no se la frena, solo queda en el log.
   if (!humano) {
     const cliente = await candadoCliente(numero);
     if (cliente.es) {
       await avisarCliente(numero, cliente).catch(() => {});
-      throw new Error(`CLIENTE: ${cliente.quien} (coincide ${cliente.como}). Matías no le escribe.`);
+      throw new Error(`${cliente.socio ? `SOCIO: ${cliente.quien} (${cliente.socio})` : `CLIENTE: ${cliente.quien} (coincide ${cliente.como})`}. Matías no le escribe.`);
     }
+  } else {
+    await avisoHumano(numero).catch(() => {});
   }
   const claveEnvio = `envio-${claveTel(numero)}`;
   if (cuerpo?.type === 'template' && !humano) {
@@ -488,7 +492,7 @@ export async function avisarCliente(numero, cliente, lead = null) {
   const texto = explicarCliente(cliente);
   if (!(await enHilo(numero, texto))) await enCanal(`${texto} · +${String(numero).replace(/\D/g, '')}`).catch(() => {});
   const id = lead?.id || estado.lead;
-  if (id) await agregarNota(id, 'Matías no escribió: es cliente', `${cliente.quien} (coincide ${cliente.como}). Matías no le escribe ni le manda seguimientos. Si hace falta, le escribe una persona.`).catch(() => {});
+  if (id) await agregarNota(id, cliente.socio ? 'Matías no escribió: cliente de socio' : 'Matías no escribió: es cliente', `${cliente.quien} (${cliente.socio || `coincide ${cliente.como}`}). Matías no le escribe ni le manda seguimientos. Si hace falta, le escribe una persona.`).catch(() => {});
   return true;
 }
 
