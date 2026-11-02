@@ -13,6 +13,7 @@
  *     fecha en la LLC y esa LLC deja de aparecer.
  *
  * Toda la regla de fechas esta en lib/estatales.js, sin red.
+ * Sale en #control-crm mencionando a cada uno; si el bot no esta en el canal,
  * DM por chat.postMessage al ID de usuario, como el Vigia (chat:write alcanza).
  */
 import { env } from './lib/entorno.js';
@@ -22,7 +23,8 @@ import { avisarFalla } from './lib/aviso-falla.js';
 
 const A = (env.ESTATALES_A || 'U08LT8252Q3,U0BTT434078').split(',').map((s) => s.trim()).filter(Boolean); // Nacho Campo, Pablo
 const IGNACIO = env.ESTATALES_ESCALAR_A || 'U0869LQ3G4C';
-const LINK = 'https://metricastart.netlify.app/planilla.html?tipo=Estatal';
+const CANAL = env.ESTATALES_CANAL || 'C0BUSC1K8TY'; // #control-crm (pedido de Ignacio 1-nov)
+const LINK ='https://metricastart.netlify.app/planilla.html?tipo=Estatal';
 const FIRMA = { username: 'Renovaciones estatales · Start Companies', icon_emoji: ':classical_building:' };
 
 async function postear(channel, text) {
@@ -72,8 +74,16 @@ export default async () => {
     if (!aviso) return new Response('nada pendiente');
 
     const destinos = aviso.vencidas ? [...A, IGNACIO] : A;
+    // Un solo mensaje en #control-crm mencionando a cada uno; si el bot no esta en el canal, vuelve a los DMs.
+    try {
+      const menciones = destinos.map((u) => `<@${u}>`).join(' ');
+      for (const [i, m] of aviso.mensajes.entries()) await postear(CANAL, i ? m : `${menciones}\n${m}`);
+      return new Response(`enviado a ${CANAL}: ${aviso.vencidas} vencidas, ${aviso.proximas} proximas`);
+    } catch (e) {
+      console.error('canal fallo, mando por DM', e);
+    }
     for (const u of destinos) for (const m of aviso.mensajes) await postear(u, m);
-    return new Response(`enviado a ${destinos.length}: ${aviso.vencidas} vencidas, ${aviso.proximas} proximas`);
+    return new Response(`enviado por DM a ${destinos.length}: ${aviso.vencidas} vencidas, ${aviso.proximas} proximas`);
   } catch (e) {
     await avisarFalla('Aviso de renovaciones estatales', e, 'Mirar lib/estatales.js y el token de Zoho');
     return new Response('fallo', { status: 500 });
