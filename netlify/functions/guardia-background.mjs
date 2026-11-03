@@ -37,6 +37,10 @@ export default async () => {
     const memoria = {
       leer: async () => (await store.get('guardia/atendidas', { type: 'json' })) || {},
       guardar: (datos) => store.setJSON('guardia/atendidas', datos),
+      // Ultimo aviso por persona (id de ficha y ultimos 9 digitos), para no
+      // mandar dos en menos de GUARDIA_HORAS_ENTRE_AVISOS (12 h).
+      leerAvisos: async () => (await store.get('guardia/avisos', { type: 'json' })) || {},
+      guardarAvisos: (datos) => store.setJSON('guardia/avisos', datos),
     };
     const r = await correrGuardia({ aplicar: true, tope: TOPE, memoria });
 
@@ -52,6 +56,9 @@ export default async () => {
       // que uso). Son 170 de 11.220 conversaciones, asi que aparece seguido.
       `${r.sinAvisoPorOtroNumero ? `, ${r.sinAvisoPorOtroNumero} desde otro numero` : ''}` +
       `${r.sinAvisoPorEquipo ? `, ${r.sinAvisoPorEquipo} ya atendidos por el equipo` : ''}` +
+      `${r.sinAvisoPorSocio ? `, ${r.sinAvisoPorSocio} clientes de socio/bloqueados sin aviso` : ''}` +
+      `${r.sinAvisoPorReciente ? `, ${r.sinAvisoPorReciente} con aviso hace menos de 12 h` : ''}` +
+      `${r.sinAvisoPorSuHorario ? `, ${r.sinAvisoPorSuHorario} en horario habil en su pais` : ''}` +
       `, ${r.fallas || 0} fallas, ${Date.now() - arranque}ms`;
     console.log(resumen);
 

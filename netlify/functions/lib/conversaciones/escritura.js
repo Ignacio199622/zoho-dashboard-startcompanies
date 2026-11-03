@@ -99,7 +99,7 @@ export const ESTADOS_YA_FUERA = ['No Interesado', 'Fuera de flujo', 'Nurturing']
 export const TIPOS_QUE_LEEN_LA_FECHA = ["Cuenta Bancaria", "Renovaci\xF3n", "Renovacion"];
 
 const CAMPOS_LEAD =
-  'id,Full_Name,First_Name,Tag,Owner,Lead_Status,Retargeting,Desactivar_Retargeting,En_Nurturing,Fecha_Siguiente_Mensaje,Tipo,Mobile,Phone,Email';
+  'id,Full_Name,First_Name,Tag,Owner,Lead_Status,Retargeting,Desactivar_Retargeting,En_Nurturing,Fecha_Siguiente_Mensaje,Tipo,Lead_Source,Mobile,Phone,Email';
 
 async function put(path, cuerpo, reintento = false) {
   const r = await fetch(`${API}/${path}`, {
@@ -250,7 +250,26 @@ export const leeLaFecha = (lead) =>
 // Por eso los frenos viven en `guardia.js` (15 minutos de gracia, uno por
 // conversacion por dia, tope por corrida) y no aca: cuando la llamada llega a
 // esta funcion, el mensaje ya sale.
-const CAMPOS_GUARDIA = 'id,Full_Name,Owner,Aviso_Fuera_Horario,Motivo_Cierre,Vuelta_Habil,Email,Mobile,Phone';
+// Desde el 2-nov-2026 trae ademas lo que mira el candado de socio
+// (Bloqueo_de_envio, Tipo_de_Contacto, Nombre_de_Partner, la LLC) y el pais.
+const CAMPOS_GUARDIA = 'id,Full_Name,Owner,Aviso_Fuera_Horario,Motivo_Cierre,Vuelta_Habil,Email,Mobile,Phone,'
+  + 'Account_Name,Bloqueo_de_envio,Tipo_de_Contacto,Nombre_de_Partner,Codigo_de_Pais';
+
+/**
+ * La LLC del contacto con lo que dice si es de un socio. Solo lectura. null si
+ * no tiene LLC; `{ _error: true }` si no se pudo leer.
+ */
+export async function cuentaDelContacto(contacto) {
+  const id = contacto?.Account_Name?.id;
+  if (!id) return null;
+  try {
+    const j = await get(`Accounts/${id}?fields=id,Account_Name,Socio,Bloqueo_de_envio`);
+    return (j.data || [])[0] || null;
+  } catch {
+    // Ante la duda, sin aviso: la guardia lo trata como bloqueado.
+    return { _error: true };
+  }
+}
 
 /** El contacto (cliente) con ese telefono, si existe. */
 export async function contactosConTelefono(numero) {

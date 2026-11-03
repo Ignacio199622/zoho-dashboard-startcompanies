@@ -13,8 +13,13 @@ import {
 import {
   contactosConTelefono, leadsConTelefono, fichaPorId, marcarAvisoFueraDeHorario,
   crearTareaGuardia, tareaGuardiaDesde, avisoGuardiaDesde, reglaAgendamientoActiva, ponerEnSecuencia,
-  limpiarAvisoFueraDeHorario, ESTADOS_CON_CADENCIA, REGLA_AGENDAMIENTO,
+  limpiarAvisoFueraDeHorario, ESTADOS_CON_CADENCIA, REGLA_AGENDAMIENTO, cuentaDelContacto,
 } from './escritura.js';
+import {
+  opcionesGuardia, motivoSocio, tipoPersona, decidirAviso, husoDelContacto, habilEn, vueltaEnSuHora,
+  podarAvisos, clavesAviso, ultimoAvisoDe,
+} from './guardia-filtros.js';
+import { FERIADOS } from './guardia.js';
 
 const HORAS_DE_LECTURA = 24;
 
@@ -108,7 +113,9 @@ async function ubicar(numero, emisor = null) {
 // solo ve lo que esta contestado en ese momento.
 const MEMORIA_VACIA = { leer: async () => ({}), guardar: async () => {} };
 
-export async function correrGuardia({ aplicar = false, tope = TOPE_POR_CORRIDA, ahora = new Date(), memoria = MEMORIA_VACIA } = {}) {
+export async function correrGuardia({
+  aplicar = false, tope = TOPE_POR_CORRIDA, ahora = new Date(), memoria = MEMORIA_VACIA, opciones = opcionesGuardia(),
+} = {}) {
   const linea = [];
   const decir = (t) => linea.push(t);
 
@@ -122,7 +129,7 @@ export async function correrGuardia({ aplicar = false, tope = TOPE_POR_CORRIDA, 
 
   const conversaciones = await conversacionesDesde(new Date(ahora.getTime() - HORAS_DE_LECTURA * 3600e3));
   const esperando = pendientes(conversaciones, ahora);
-  const { avisos, corte } = paraAvisar(esperando, ahora);
+  const { avisos, corte } = paraAvisar(esperando, ahora, undefined, opciones.minSinRespuesta);
 
   // Las que ya esta atendiendo alguien del equipo en este cierre: a esas no se
   // les dice "no hay nadie conectado". Ver `atendidasEnCierre` en guardia.js.
@@ -214,7 +221,17 @@ export async function correrGuardia({ aplicar = false, tope = TOPE_POR_CORRIDA, 
     decir(`"${REGLA_AGENDAMIENTO}" esta apagada: los leads NO entran a la secuencia todavia.`);
   }
 
-  const salida = { abierto: false, avisos: 0, tareas: 0, saltados: 0, sinFicha: 0, fallas: 0, casos: [], linea };
+  const salida = { abierto: false, avisos: 0, tareas: 0, saltados: 0, sinFicha: 0, fallas: 0, casos: [], decisiones: [], linea };
+
+  // Memoria de avisos (GUARDIA_HORAS_ENTRE_AVISOS, 12 h por defecto): nunca dos
+  // WhatsApp de fuera de horario a la misma persona en menos de eso, aunque
+  // cambie el cierre (el que recibio el aviso a las 08:40 no recibe otro a las
+  // 18:02). Vive en Blobs; sin memoria (corrida a mano) no frena nada.
+  let memAvisos = {};
+  if (opciones.horasEntreAvisos > 0 && memoria.leerAvisos) {
+    memAvisos = podarAvisos(await memoria.leerAvisos().catch(() => ({})), ahora, opciones.horasEntreAvisos);
+  }
+  let memAvisosCambio = false;
 
   salida.saltados = salida0.saltados;
   salida.sinFicha = salida0.sinFicha;
@@ -260,69 +277,80 @@ export async function correrGuardia({ aplicar = false, tope = TOPE_POR_CORRIDA, 
 
     // El lead que recien entra ya tiene un mensaje en camino: la cadencia de
     // Agendamiento le escribe a los 5 minutos, sea la hora que sea. Sumarle el
-    // "no hay nadie conectado" son dos WhatsApp parecidos en diez minutos, y de
-    // madrugada es peor: medido, un lead que entro a la 1:16 recibio el suyo a
-    // la 1:21. Se le crea la tarea igual, que es lo que no tenia.
+    // "no hay nadie conectado" son dos WhatsApp parecidos en diez minutos.
     const yaLeEscriben = yaEnCadencia;
 
+    // ─── Quien es (2-nov-2026) ────────────────────────────────────────────
+    // Cliente, lead, posible partner o cliente de un socio. El candado de
+    // socio (candadoSocio, el mismo de Daniel) mira el contacto, su LLC
+    // (`Account_Name.Socio`) y `Nombre_de_Partner`; en los leads, Tipo,
+    // fuente y etiquetas. Con GUARDIA_CANDADO_SOCIO=0 no se mira.
+    let socio = '';
+    if (opciones.candadoSocio) {
+      const cuenta = aplicar && donde.modulo === 'Contacts' ? await cuentaDelContacto(donde.registro) : null;
+      socio = cuenta?._error
+        ? 'no se pudo leer la LLC, por las dudas sin aviso'
+        : motivoSocio(donde.modulo, donde.registro, cuenta);
+    }
+    const tipo = tipoPersona(donde.modulo, donde.registro, socio);
+    caso.tipo = tipo;
+
+    // El huso del contacto (Codigo_de_Pais o prefijo del telefono). Solo se
+    // usa con GUARDIA_TZ_CONTACTO=1; si no, todo sigue en hora AR.
+    const tz = opciones.tzContacto
+      ? husoDelContacto({ codigoPais: donde.registro.Codigo_de_Pais, telefono: a.mobile_number__s })
+      : null;
+    const vueltaFinal = tz ? vueltaEnSuHora(vuelta, a.vueltaISO, tz) : vuelta;
+
+    const claves = clavesAviso(donde.modulo, donde.registro.id, a.mobile_number__s);
+    const decision = decidirAviso({
+      tipo,
+      motivoSocio: socio,
+      atendida: sigueAtendida(atendidas[a.ref], ahora),
+      enCadencia: yaLeEscriben,
+      tieneReunion: yaTieneReunion(donde.registro),
+      otroNumero: !!donde.porConversacion,
+      cerro: yaCerro,
+      ultimoAviso: ultimoAvisoDe(memAvisos, claves),
+      habilContacto: tz ? habilEn(ahora, tz, FERIADOS) : false,
+      camposListos: !!listos[donde.modulo],
+      secuenciaViva,
+    }, opciones, ahora);
+    caso.decision = decision.codigo;
+    caso.motivoDecision = decision.motivo;
+    salida.decisiones.push({
+      quien, modulo: donde.modulo, id: donde.registro.id, tipo,
+      aviso: decision.aviso, codigo: decision.codigo, motivo: decision.motivo, tz: tz || null,
+    });
+    salida.porMotivo = salida.porMotivo || {};
+    salida.porMotivo[decision.codigo] = (salida.porMotivo[decision.codigo] || 0) + 1;
+
     if (aplicar) {
-      // EL WHATSAPP ES SOLO PARA CLIENTES. Decision de Ignacio, 22-sep-2026.
-      //
-      // Hasta hoy el filtro no preguntaba lead o cliente: preguntaba si ya le
-      // escribe una cadencia. En los hechos daba casi lo mismo (1.502 de 1.531
-      // conversaciones de leads de los ultimos 30 dias caen en un estado con
-      // cadencia), pero los 29 restantes -- Nuevo MQL, En Calificacion, los
-      // dormidos que no tienen ningun mensaje programado -- si recibian
-      // `fuera_horario_lead`. Al lead le habla el embudo; sumarle un
-      // automatico mas es lo que ya nos costo el bloqueo de WhatsApp de
-      // agosto. La tarea se crea igual: el vendedor lo ve a la mañana.
-      if (donde.modulo === 'Leads') {
-        caso.sinAvisoPorSerLead = true;
-        salida.sinAvisoPorSerLead = (salida.sinAvisoPorSerLead || 0) + 1;
-        decir(`- ${quien}: es un posible cliente, el aviso automatico es solo para clientes; se le crea la tarea.`);
-      } else if (sigueAtendida(atendidas[a.ref], ahora)) {
-        // Una persona del equipo le contesto hoy. Decirle ahora "no hay nadie
-        // conectado" desmiente al que le esta escribiendo.
-        caso.sinAvisoPorEquipo = true;
-        salida.sinAvisoPorEquipo = (salida.sinAvisoPorEquipo || 0) + 1;
-        decir(`- ${quien}: ya le venia contestando alguien del equipo, solo se le crea la tarea.`);
-      } else if (yaLeEscriben) {
-        caso.sinAvisoPorCadencia = true;
-        salida.sinAvisoPorCadencia = (salida.sinAvisoPorCadencia || 0) + 1;
-        decir(`- ${quien}: ya esta en ${caso.estadoPrevio} y la cadencia le escribe sola, solo se le crea la tarea.`);
-      } else if (yaTieneReunion(donde.registro)) {
-        // Ya tiene la llamada agendada: decirle "no hay nadie, agenda una llamada" es un
-        // sinsentido (Marco Rodriguez, 13-sep-2026: pidio reagendar y recibio eso). La tarea
-        // se crea igual para que una persona lo lea a la mañana; el agente de confirmaciones
-        // ademas lo manda a Slack como "revisar".
-        caso.sinAvisoPorReunion = true;
-        salida.sinAvisoPorReunion = (salida.sinAvisoPorReunion || 0) + 1;
-        decir(`- ${quien}: ya tiene reunion agendada, solo se le crea la tarea.`);
-      } else if (donde.porConversacion) {
-        // La ficha la encontramos por la conversacion, no por el telefono: el
-        // numero desde el que escribio NO es el que tiene cargado. La plantilla
-        // de Zoho sale al campo `Movil` de la ficha, asi que el aviso le
-        // llegaria al otro telefono (o al de otra persona, si la ficha esta
-        // mal). La tarea si se crea: una persona lee el hilo real y contesta
-        // ahi.
-        caso.sinAvisoPorOtroNumero = true;
-        salida.sinAvisoPorOtroNumero = (salida.sinAvisoPorOtroNumero || 0) + 1;
-        decir(`- ${quien}: escribio desde ${a.mobile_number__s} y su ficha tiene otro numero, solo se le crea la tarea.`);
-      } else if (yaCerro) {
-        caso.sinAvisoPorCierre = true;
-        salida.sinAvisoPorCierre = (salida.sinAvisoPorCierre || 0) + 1;
-        decir(`- ${quien}: cerro la conversacion ("${String(a.last_message__s || '').slice(0, 40)}"), solo se le crea la tarea.`);
-      } else if (listos[donde.modulo]) {
-        const r = await marcarAvisoFueraDeHorario(donde.modulo, donde.registro.id, porQue, vuelta);
+      // Los contadores de siempre, para el resumen de Slack.
+      const marca = {
+        lead: 'sinAvisoPorSerLead', equipo: 'sinAvisoPorEquipo', cadencia: 'sinAvisoPorCadencia',
+        reunion: 'sinAvisoPorReunion', otro_numero: 'sinAvisoPorOtroNumero', cierre: 'sinAvisoPorCierre',
+        socio: 'sinAvisoPorSocio', reciente: 'sinAvisoPorReciente', su_horario: 'sinAvisoPorSuHorario',
+      }[decision.codigo];
+      if (marca) {
+        caso[marca] = true;
+        salida[marca] = (salida[marca] || 0) + 1;
+      }
+      if (!decision.aviso && decision.codigo !== 'sin_campos') decir(`- ${quien}: ${decision.motivo}.`);
+
+      if (decision.aviso) {
+        const r = await marcarAvisoFueraDeHorario(donde.modulo, donde.registro.id, porQue, vueltaFinal);
         caso.aviso = r.ok;
-        if (r.ok) salida.avisos++;
-        else salida.fallas++;
+        if (r.ok) {
+          salida.avisos++;
+          for (const k of claves) memAvisos[k] = ahora.toISOString();
+          memAvisosCambio = true;
+        } else salida.fallas++;
 
         // Devolver la casilla a false, sin disparar nada. Es lo que deja lista
         // la proxima transicion false -> true: sin esto la regla de Zoho avisa
-        // una sola vez por persona en toda su vida y el mismo cliente no
-        // recibiria el aviso el finde siguiente. Va despues de un envio exitoso
-        // y con `trigger: []`, asi limpiar nunca manda un segundo mensaje.
+        // una sola vez por persona en toda su vida. Va despues de un envio
+        // exitoso y con `trigger: []`, asi limpiar nunca manda un segundo mensaje.
         if (r.ok) {
           const limpio = await limpiarAvisoFueraDeHorario(donde.modulo, donde.registro.id);
           if (!limpio.ok) {
@@ -345,9 +373,10 @@ export async function correrGuardia({ aplicar = false, tope = TOPE_POR_CORRIDA, 
         else salida.fallas++;
       }
 
-      // Y al embudo. Solo leads, solo si no venia ya con cadencia, y solo si
-      // la regla que manda los mensajes esta viva.
-      if (donde.modulo === 'Leads' && secuenciaViva && !yaEnCadencia && !yaTieneReunion(donde.registro)) {
+      // Y al embudo. Solo leads (nunca un cliente de socio, ni un posible
+      // partner con GUARDIA_POSIBLE_PARTNER prendido), solo si no venia ya con
+      // cadencia, y solo si la regla que manda los mensajes esta viva.
+      if (donde.modulo === 'Leads' && decision.secuencia) {
         const sec = await ponerEnSecuencia(donde.registro.id);
         caso.secuencia = sec.ok;
         if (sec.ok) salida.secuencias = (salida.secuencias || 0) + 1;
@@ -363,6 +392,8 @@ export async function correrGuardia({ aplicar = false, tope = TOPE_POR_CORRIDA, 
       `${yaEnCadencia ? ' · SIN aviso: ya le escribe la cadencia' : ''}` +
       `${!yaEnCadencia && yaCerro ? ' · SIN aviso: ya cerro la conversacion' : ''}` +
       `${caso.sinAvisoPorSerLead ? ' · SIN aviso: es lead' : ''}` +
+      `${caso.sinAvisoPorSocio ? ' · SIN aviso: cliente de socio / bloqueado' : ''}` +
+      `${caso.sinAvisoPorReciente ? ' · SIN aviso: ya tuvo uno hace menos de 12 h' : ''}` +
       `${caso.sinAvisoPorEquipo ? ' · SIN aviso: lo estaba atendiendo el equipo' : ''}` +
       `${caso.secuencia ? ' + entro a Agendamiento' : ''}` +
       `${donde.porConversacion ? ` · escribio desde OTRO numero (${a.mobile_number__s}), la ficha salio de la conversacion` : ''}` +
@@ -372,5 +403,11 @@ export async function correrGuardia({ aplicar = false, tope = TOPE_POR_CORRIDA, 
     salida.casos.push(caso);
   }
 
+  if (aplicar && memAvisosCambio && memoria.guardarAvisos) {
+    await memoria.guardarAvisos(memAvisos).catch((e) => decir(`OJO: no se pudo guardar la memoria de avisos: ${e.message}`));
+  }
+  if (salida.decisiones.length) {
+    decir(`Decisiones: ${Object.entries(salida.porMotivo || {}).map(([k, v]) => `${k} ${v}`).join(', ')}.`);
+  }
   return salida;
 }

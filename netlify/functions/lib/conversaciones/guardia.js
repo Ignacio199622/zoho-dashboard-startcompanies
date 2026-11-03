@@ -18,6 +18,8 @@
 //     ese rato, no sale nada.
 //   - Un aviso por conversacion por dia, y tope duro por corrida.
 import { TZ_EQUIPO } from './config.js';
+import { env } from './entorno.js';
+import { feriadosDeTexto } from './guardia-filtros.js';
 
 export const ABRE = 9;
 export const CIERRA = 18;
@@ -68,6 +70,10 @@ export const FERIADOS = new Set([
   '2027-11-25', // Thanksgiving
   '2027-12-24', // Christmas Day (observado, cae sabado)
 ]);
+
+// Feriados extra sin tocar el codigo: GUARDIA_FERIADOS=2026-12-24,2026-12-31 en
+// Netlify. Se suman a los de EE.UU.; cuentan como dia cerrado entero.
+for (const d of feriadosDeTexto(env.GUARDIA_FERIADOS)) FERIADOS.add(d);
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
@@ -426,7 +432,7 @@ export function textoPara(equipo, nombre, porQue, vuelta) {
  *
  * `yaAvisados` es un Set de claves "idConversacion:yyyy-mm-dd".
  */
-export function paraAvisar(pendientes, ahora = new Date(), yaAvisados = new Set()) {
+export function paraAvisar(pendientes, ahora = new Date(), yaAvisados = new Set(), minutosDeGracia = MINUTOS_DE_GRACIA) {
   if (estaAbierto(ahora)) return { avisos: [], corte: null };
 
   const hoy = enArgentina(ahora).iso;
@@ -435,7 +441,8 @@ export function paraAvisar(pendientes, ahora = new Date(), yaAvisados = new Set(
 
   for (const c of pendientes) {
     if (!c.cuando || estaAbierto(c.cuando)) continue;
-    if (c.minutosEsperando < MINUTOS_DE_GRACIA) continue;
+    // GUARDIA_MIN_SIN_RESPUESTA (por defecto los mismos 15).
+    if (c.minutosEsperando < minutosDeGracia) continue;
     if (yaAvisados.has(`${c.ref}:${hoy}`)) continue;
 
     avisos.push({
