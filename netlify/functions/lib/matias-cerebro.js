@@ -58,6 +58,11 @@ export const PLANTILLAS = {
   // sin "mañana" (la v3 lo dice y no sirve para reservas del mismo día). Creadas con tmp/crear-plantillas-reserva-12oct.mjs.
   reservaVideo: 'sdr_matias_reserva_video',
   ctwa: 'sdr_matias_apertura_llc_btn',
+  // Lead magnet "panel gratis" (Ignacio, 4-nov-2026): apertura propia. Con LLC le anticipa la
+  // llamada para activar el panel; sin LLC, la LLC con el panel incluido. Sin versión vieja:
+  // hasta que Meta las apruebe, la apertura queda propuesta en el hilo (nunca la de Lili).
+  panel: 'sdr_matias_apertura_panel_btn',
+  panelSin: 'sdr_matias_apertura_panel_sin_llc_btn',
 };
 export const PLANTILLAS_SIN_BOTONES = {
   meta: 'sdr_matias_apertura_llc',
@@ -124,6 +129,16 @@ export const TEXTOS = {
     vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que te interesa abrir una LLC para vos. ¿Ya sabés desde qué país vas a operar? Si querés lo vemos juntos en una llamada corta de 15 minutos.`,
     tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que te interesa abrir una LLC para ti. ¿Ya sabes desde qué país vas a operar? Si quieres lo vemos juntos en una llamada corta de 15 minutos.`,
     pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Vi que você tem interesse em abrir uma LLC para você. Já sabe de qual país vai operar? Se quiser, a gente vê junto numa ligação rápida de 15 minutos.`,
+  },
+  panel: {
+    vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido del panel gratis para tu LLC. Te llamo para activártelo y mostrarte cómo facturar y ver tus vencimientos desde ahí. ¿Te queda bien hoy o preferís mañana?`,
+    tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido del panel gratis para tu LLC. Te llamo para activártelo y mostrarte cómo facturar y ver tus vencimientos desde ahí. ¿Te queda bien hoy o prefieres mañana?`,
+    pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Recebi seu pedido do painel grátis para a sua LLC. Vou te ligar para ativar e te mostrar como faturar e ver seus vencimentos por lá. Fica bom hoje ou prefere amanhã?`,
+  },
+  panelSin: {
+    vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido del panel gratis. Como todavía no tenés LLC, te cuento cómo abrirla y el panel te queda incluido. ¿Te llamo 10 minutos hoy o preferís mañana?`,
+    tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido del panel gratis. Como todavía no tienes LLC, te cuento cómo abrirla y el panel te queda incluido. ¿Te llamo 10 minutos hoy o prefieres mañana?`,
+    pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Recebi seu pedido do painel grátis. Como você ainda não tem LLC, te explico como abrir e o painel já vem incluído. Te ligo 10 minutos hoje ou prefere amanhã?`,
   },
   partner: {
     vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que querés sumarte como socio para ofrecer LLCs en Estados Unidos a tus clientes. ¿Hoy ya trabajás con emprendedores que facturan en dólares? Si querés te cuento cómo funciona en una llamada corta.`,
@@ -262,6 +277,20 @@ export const respuestaPersona = (numero) => (registroDe(numero) === 'pt'
   ? 'Te contesto desde el sistema automático de agenda de Start Companies, por eso respondo al toque. Si preferís hablar con una persona del equipo, decime y te escribe alguien hoy.'
   : 'Te contesto desde el sistema automático de agenda de Start Companies, por eso respondo enseguida. Si prefieres hablar con una persona del equipo, dime y te escribe alguien hoy.');
 
+/**
+ * El lead magnet "panel gratis" (landing gratis.startcompanies.io, referidos/lead-landing.mjs).
+ * Con LLC entra con "Form Panel Gratis" + "Form LiliBank"; sin LLC con "Panel Gratis Sin LLC".
+ * No es un origen nuevo (el calendario sigue siendo el de Lili o el de LLC): es la variante
+ * de la apertura, de los datos del seguimiento y de lo que Daniel sabe al contestar.
+ * Antes Daniel le abría con el texto de Lili ("¿ya tenés tu LLC?") al que ya la tenía.
+ */
+export function varianteDe(lead) {
+  const tags = (lead?.Tag || []).map((t) => String(t.name || t).toLowerCase());
+  if (tags.includes('form panel gratis')) return 'panel';
+  if (tags.includes('panel gratis sin llc')) return 'panelSin';
+  return '';
+}
+
 export function origenDe(lead) {
   const tags = (lead?.Tag || []).map((t) => String(t.name || t).toLowerCase());
   // Lili y partners antes que ctwa: el que escribe desde un anuncio de Lili va al calendario de
@@ -376,6 +405,18 @@ LO QUE SABÉS (y nada más)
   la reunión se ve cuál conviene.
 - Lili es la cuenta bancaria internacional que se abre junto con la LLC.
 - La asesoría es gratis, 15 minutos, por videollamada, con un asesor del equipo.
+
+SI VIENE DEL PANEL GRATIS (llegó por la landing del panel gratis)
+- El panel gratis es la plataforma de Start Companies para la LLC: facturar, ver los vencimientos
+  (reporte anual, agente registrado) y las declaraciones (5472 y 1120) en un solo lugar. Es gratis.
+- Si YA TIENE LLC: el objetivo es la llamada para activarle el panel. Un asesor del equipo lo llama
+  por teléfono. Si dice que lo llamen o elige un momento, confirmale en una línea que lo llaman
+  ("Perfecto, te llamo en un rato" o el día que diga) con accion.tipo = "ninguna". Si prefiere una
+  videollamada, ofrecé horarios como siempre. No le preguntes si ya tiene LLC: ya la tiene.
+- Lo que más le importa al que ya tiene LLC es que alguien se haga cargo (renovación, agente
+  registrado, declaraciones). Si pregunta precio: la renovación con todo incluido es desde 600 USD al
+  año, y en la llamada se ve su caso.
+- Si NO TIENE LLC: es un lead de apertura más, con el panel incluido. Mismo objetivo: la llamada.
 
 SI EL LEAD QUIERE SER SOCIO (llegó por el formulario de socios como posible partner)
 - Tu objetivo sigue siendo la llamada, pero es la llamada de partnerships: ahí se ve el modelo
@@ -528,6 +569,11 @@ export async function proponer({ lead, numero, hilo = [], ultimo, hoy = '', esta
     partner: 'formulario de socios: QUIERE SER SOCIO (partner), llevalo a la llamada de partnerships',
     ctwa: 'un anuncio de Instagram o Facebook: TE ESCRIBIÓ ÉL PRIMERO. No le hables de ningún "número oficial" ni de otro mensaje: sos su único contacto. Contestá lo que pregunta en una línea y preguntale qué día y horario le queda cómodo para la llamada',
   }[origen];
+  const variante = varianteDe(lead) || estado?.variante || '';
+  const llegoPorPanel = {
+    panel: 'la landing del PANEL GRATIS y YA TIENE SU LLC (ver SI VIENE DEL PANEL GRATIS)',
+    panelSin: 'la landing del PANEL GRATIS y TODAVÍA NO TIENE LLC (ver SI VIENE DEL PANEL GRATIS)',
+  }[variante];
   // El que ya reservó no recibe más pitch ni link (Ignacio: "se calla si agendó").
   // Si igual escribe, Matías contesta corto y lo espera en la reunión.
   // Reunión pendiente sin confirmar o no-show reciente: el lead "ya agendó" en Zoho,
@@ -545,7 +591,7 @@ export async function proponer({ lead, numero, hilo = [], ultimo, hoy = '', esta
   const contenido = [
     ficha.length ? `FICHA (datos firmes de esta conversación): ${ficha.join(' · ')}` : '',
     molesto ? 'SITUACIÓN: el lead está molesto. Primero pedí disculpas concretas por lo que pasó (mirá la conversación y la FICHA), sin excusas técnicas, y en el mismo mensaje resolvé lo que falta. Nada de venta ni datos nuevos. No lo llames por el nombre.' : '',
-    `Lead: ${nombre || '(sin nombre)'} · país: ${pais} · registro: ${registroDe(numero) === 'pt' ? 'PORTUGUÉS DE BRASIL (respondé siempre en portugués de Brasil, natural, sin voseo ni tuteo en español)' : registroDe(numero) === 'vos' ? 'VOS (voseo rioplatense)' : 'TÚ (español neutro, sin voseo)'} · llegó por: ${llegoPor}`,
+    `Lead: ${nombre || '(sin nombre)'} · país: ${pais} · registro: ${registroDe(numero) === 'pt' ? 'PORTUGUÉS DE BRASIL (respondé siempre en portugués de Brasil, natural, sin voseo ni tuteo en español)' : registroDe(numero) === 'vos' ? 'VOS (voseo rioplatense)' : 'TÚ (español neutro, sin voseo)'} · llegó por: ${llegoPorPanel || llegoPor}`,
     yaAgendo
       ? 'IMPORTANTE: este lead YA AGENDÓ su asesoría. No le pidas que agende, no le mandes ningún link ni le vendas nada: contestale corto y amable a lo que pregunta y decile que lo esperamos en la reunión. EXCEPCIÓN: si avisa que no puede ir o pide reprogramar, accion.tipo = "ofrecer_horarios" (y si elige uno, "reservar"): la reunión anterior se cancela sola.'
       : `Link de agenda (solo si el lead prefiere elegir él): ${LINKS[origen]}`,

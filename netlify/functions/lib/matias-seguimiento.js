@@ -68,6 +68,9 @@ const DATOS = {
     _: 'la LLC con cuenta bancaria queda lista en 7 a 12 días hábiles, todo online.',
   },
   lili: { _: 'la cuenta Lili se abre junto con la LLC, sin viajar y sin depósito mínimo.' },
+  // Panel gratis (4-nov-2026). Con LLC no se le habla de abrirla: ya la tiene.
+  panel: { _: 'el panel es gratis: ahí facturás, ves los vencimientos de tu LLC y tus declaraciones en un solo lugar.' },
+  panelSin: { _: 'la LLC con cuenta bancaria queda lista en 7 a 12 días hábiles y el panel para facturar te queda incluido gratis.' },
   socios: { _: 'la LLC con cuenta bancaria queda lista en 7 a 12 días hábiles, todo online.' },
   partner: { _: 'los socios derivan al cliente y nosotros hacemos todo el proceso; en la llamada vemos el modelo.' },
 };
@@ -80,11 +83,19 @@ const DATOS_TARDE = {
   lili: { AR: 'la asesoría es gratis: en 15 minutos vemos si te conviene abrir la LLC con la cuenta Lili y cuánto tarda.', _: 'la asesoría es gratis: en 15 minutos vemos si te conviene abrir la LLC con la cuenta Lili y cuánto tarda.' },
   socios: { AR: 'en 15 minutos de asesoría sabés qué estado te conviene y qué necesitás para arrancar; es gratis.', _: 'en 15 minutos de asesoría sabes qué estado te conviene y qué necesitas para arrancar; es gratis.' },
   partner: { _: 'en la llamada de partnerships vemos cómo derivar clientes y qué materiales te damos; son 15 minutos.' },
+  panel: {
+    AR: 'si tu LLC tiene algo atrasado (reporte anual o 5472), en 15 minutos te digo qué falta y cuánto sale ponerla al día.',
+    _: 'si tu LLC tiene algo atrasado (reporte anual o 5472), en 15 minutos te digo qué falta y cuánto cuesta ponerla al día.',
+  },
+  panelSin: {
+    AR: 'en 15 minutos de asesoría sabés qué estado te conviene, cuánto tarda y te dejamos el panel listo; es gratis.',
+    _: 'en 15 minutos de asesoría sabes qué estado te conviene, cuánto tarda y te dejamos el panel listo; es gratis.',
+  },
 };
 // Brasil (14-oct-2026): el dato entra en la plantilla _pt, así que va en portugués.
 const DATOS_PT = {
-  cedo: { partner: 'os parceiros indicam o cliente e nós fazemos todo o processo; na ligação vemos o modelo.', _: 'a LLC com conta bancária fica pronta em 7 a 12 dias úteis, tudo online.' },
-  tarde: { partner: 'na ligação de parcerias vemos como indicar clientes e quais materiais te damos; são 15 minutos.', _: 'em 15 minutos de assessoria você descobre qual estado compensa, quanto tempo leva e o que precisa; é grátis e sem compromisso.' },
+  cedo: { panel: 'o painel é grátis: nele você fatura, vê os vencimentos da sua LLC e suas declarações num só lugar.', panelSin: 'a LLC com conta bancária fica pronta em 7 a 12 dias úteis e o painel para faturar já vem incluído, grátis.', partner: 'os parceiros indicam o cliente e nós fazemos todo o processo; na ligação vemos o modelo.', _: 'a LLC com conta bancária fica pronta em 7 a 12 dias úteis, tudo online.' },
+  tarde: { panel: 'se a sua LLC tem algo atrasado (relatório anual ou 5472), em 15 minutos te digo o que falta e quanto custa regularizar.', partner: 'na ligação de parcerias vemos como indicar clientes e quais materiais te damos; são 15 minutos.', _: 'em 15 minutos de assessoria você descobre qual estado compensa, quanto tempo leva e o que precisa; é grátis e sem compromisso.' },
 };
 const datoPara = (origen, tel, toque = 2) => {
   if (paisDe(tel) === 'BR') { const t = DATOS_PT[toque >= 6 ? 'tarde' : 'cedo']; return t[origen] || t._; }
@@ -212,6 +223,16 @@ export async function pasadaSeguimientos({ ahora = new Date(), enviar = false } 
     }
     catch (e) { resumen.salteados.push(`${tel}: Zoho ${String(e.message).slice(0, 80)}`); continue; }
     if (si) { await cerrar('agendó'); await enHilo(tel, '🎯 Agendó. Matías se calla; el día anterior le confirma.'); continue; }
+    // Panel gratis (4-nov-2026): si Daniel persona ya lo llamó (nota CONTACTADO, desde el mail del
+    // aviso o el WhatsApp de admin), Daniel virtual no le manda más seguimientos.
+    if (estado.variante && !noShow) {
+      const notas = await get(`Leads/${estado.lead}/Notes?fields=Note_Title&per_page=50`).catch(() => ({}));
+      if ((notas.data || []).some((n) => String(n.Note_Title || '').startsWith('CONTACTADO'))) {
+        await cerrar('lo llamó una persona (panel gratis)');
+        await enHilo(tel, '📞 Daniel persona ya lo llamó (panel gratis): Daniel virtual no le manda más seguimientos.');
+        continue;
+      }
+    }
 
     if (lead && !lead.Email && estado.email) lead.Email = estado.email; // el mail que dio por el chat (ver webhook)
     const nombre = nombreDe(lead, estado);
@@ -219,7 +240,7 @@ export async function pasadaSeguimientos({ ahora = new Date(), enviar = false } 
 
     let texto;
     let comoAudio = false;
-    const datoDelToque = datoPara(estado.origen, `+${tel}`, noShow ? 6 : siguiente);
+    const datoDelToque = datoPara(noShow ? estado.origen : (estado.variante || estado.origen), `+${tel}`, noShow ? 6 : siguiente);
     const datoRepetido = estado.datoEnviado === datoDelToque;
     try {
       if (ventanaAbierta) {

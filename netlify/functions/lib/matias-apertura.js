@@ -32,7 +32,7 @@ import { conversacionesDesde } from './conversaciones/zoho.js';
 import { candadoCliente, buscarCliente, exento } from './matias-cliente.js';
 import { candadoSocio, fuenteExtra } from './matias-candados.js';
 import { LINEA_ACTUAL, LINEAS, WABA, mandar, plantilla as armarPlantilla, registrar, enHilo, saludDelNumero, etiquetarLead, ETIQUETA_CONTACTADO } from './matias.js';
-import { origenDe, PLANTILLAS, paisDe, plantillaPara, textoDe, conBotones, registroDe } from './matias-cerebro.js';
+import { origenDe, varianteDe, PLANTILLAS, paisDe, plantillaPara, textoDe, conBotones, registroDe } from './matias-cerebro.js';
 import * as hilo from './hilo.js';
 
 const SOCIAL_ID = 'leadchain0__Social_Lead_ID';
@@ -67,7 +67,8 @@ export const esHoraDeAbrir = (ahora = new Date()) => { const h = horaArgentina(a
 // Socios Meta). La segunda condición importa: el 13-sep entraron 31 leads del
 // form Noviembre cargados a mano, en ráfaga, sin Social Lead ID, y Matías no
 // los vio. Lead Chain dejó de empujar ese formulario el 4-sep.
-const esDeFormulario = (l) => Boolean(l[SOCIAL_ID]) || (l.Tag || []).some((t) => /^form\s/i.test(t.name || t));
+// El lead magnet sin LLC no trae "Form ...": entra con "Panel Gratis Sin LLC" (4-nov-2026).
+const esDeFormulario = (l) => Boolean(l[SOCIAL_ID]) || (l.Tag || []).some((t) => /^form\s|^panel gratis sin llc$/i.test(t.name || t));
 // Las fuentes extra (2-nov-2026): web/SEO, landings, YouTube, WhatsApp sin origen, marca
 // personal, referidos y chatbot. Apagadas salvo MATIAS_FUENTES_EXTRA_ENABLED (matias-candados.js).
 const fuenteDe = (l) => (esDeFormulario(l) ? '' : fuenteExtra(l));
@@ -291,11 +292,14 @@ export async function pasada({ ahora = new Date(), enviar = false } = {}) {
     // se abre en español. Sin marca: si mañana hay plantilla, se reintenta.
     if (fuente && /english|ingl/i.test(String(lead.Idioma || ''))) { saltear('inglés: sin plantilla en inglés'); continue; }
     if (fuente && /portugu/i.test(String(lead.Idioma || '')) && registroDe(tel) !== 'pt') { saltear('portugués con teléfono fuera de Brasil'); continue; }
-    const plantilla = plantillaPara(origen, tel, plantillas);
+    // Panel gratis: su propia apertura (el origen queda lili/meta para el calendario).
+    const variante = varianteDe(lead);
+    const claveApertura = variante || origen;
+    const plantilla = plantillaPara(claveApertura, tel, plantillas);
     // Brasil (pt) sin gemela _pt aprobada: no se abre (nunca en español). Sin marca: se reintenta.
     if (!plantilla) { saltear('portugués: sin plantilla _pt aprobada'); continue; }
     const nombre = lead.First_Name || String(lead.Full_Name || '').split(' ')[0] || 'qué tal';
-    const texto = textoDe(origen, plantilla, nombre);
+    const texto = textoDe(claveApertura, plantilla, nombre);
 
     // El tope y el ritmo se miran ANTES de registrar: si no, cada pasada que
     // dejaba el lead "para la próxima" posteaba la apertura en el hilo y dejaba
@@ -312,7 +316,7 @@ export async function pasada({ ahora = new Date(), enviar = false } = {}) {
     }
     // Registrar abre el hilo de #sdr y deja la nota. Se hace antes de mandar
     // para que, si Meta falla, quede el rastro de que se intentó.
-    const r = await registrar({ numero: digitos(tel), de: 'matias', texto: `${enviar && plantillas[plantilla] === 'APPROVED' ? '' : '[APERTURA PROPUESTA, no enviada] '}${texto}`, cuando: ahora, apertura: { tipo: esViejo ? 'viejo' : 'nuevo', origen: fuente || origen, creado: lead.Created_Time } });
+    const r = await registrar({ numero: digitos(tel), de: 'matias', texto: `${enviar && plantillas[plantilla] === 'APPROVED' ? '' : '[APERTURA PROPUESTA, no enviada] '}${texto}`, cuando: ahora, apertura: { tipo: esViejo ? 'viejo' : 'nuevo', origen: fuente || (variante ? `${origen} (panel gratis)` : origen), creado: lead.Created_Time } });
 
     if (!enviar || plantillas[plantilla] !== 'APPROVED') {
       const porQue = !enviar ? (salud.ok ? 'MATIAS_ENVIAR apagado' : `fusible, ${salud.motivo}`) : `plantilla ${plantilla} en estado ${plantillas[plantilla] || 'inexistente'}`;
@@ -330,7 +334,7 @@ export async function pasada({ ahora = new Date(), enviar = false } = {}) {
       abiertosHoy++;
       await store.set(claveDia, String(abiertosHoy));
       await hilo.agregar(digitos(tel), 'nosotros', texto, ahora);
-      await store.setJSON(clave, { enviada: ahora.toISOString(), origen, ...(fuente ? { fuente } : {}), plantilla, lead: lead.id, toques: 1, linea: LINEA_ACTUAL, ...(esViejo ? { barrido: etiquetaMes(lead.Created_Time) } : {}) });
+      await store.setJSON(clave, { enviada: ahora.toISOString(), origen, ...(variante ? { variante } : {}), ...(fuente ? { fuente } : {}), plantilla, lead: lead.id, toques: 1, linea: LINEA_ACTUAL, ...(esViejo ? { barrido: etiquetaMes(lead.Created_Time) } : {}) });
       resumen.abiertos++;
       // La marca de "Matías lo empujó" en Zoho: etiqueta, sin tocar fuente ni landing.
       const et = await etiquetarLead(lead.id, ETIQUETA_CONTACTADO, lead.Tag);
