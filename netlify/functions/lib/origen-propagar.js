@@ -45,7 +45,10 @@ const META_CAMPOS = ['fbc', 'fbp', 'ip', 'userAgent'];
 // Lo que contestó en el formulario y lo que pidió: el vendedor lo pierde justo
 // cuando le sirve. "¿Cuentas con 500 USD?" lo respondieron 1.301 leads y sobrevive
 // en 25 contactos. `Tipo` dice qué vino a buscar (Apertura, Relay, Contabilidad…).
-const FICHA_CAMPOS = ['Tipo', 'Asistio_al_Meeting', 'Description', 'Secondary_Email', 'Phone', 'Cuentas_con_500_USD_para_invertir', 'Tienes_tu_LLC_abierta_en_USA', 'Quer_s_abrir_una_cuenta_bancaria_americana', 'Cu_nto_Cobras_actualmente_al_mes', 'Cu_l_es_tu_actividad_principal'];
+// Idioma (Ignacio 4-nov-2026: "solucionelo y que no pase"): un brasilero con el trato
+// sin Idioma recibía los WhatsApp en español (Fernando, Brascast). Las reglas PT miran
+// Deals.Idioma, así que tiene que viajar lead → contacto → trato.
+const FICHA_CAMPOS = ['Idioma', 'Tipo', 'Asistio_al_Meeting', 'Description', 'Secondary_Email', 'Phone', 'Cuentas_con_500_USD_para_invertir', 'Tienes_tu_LLC_abierta_en_USA', 'Quer_s_abrir_una_cuenta_bancaria_americana', 'Cu_nto_Cobras_actualmente_al_mes', 'Cu_l_es_tu_actividad_principal'];
 // Lo que NUNCA viaja, aunque esté: `Fecha_Siguiente_Mensaje`, `N_mero_de_mensaje`,
 // `Nombre_retargeting` y `Motivo_de_perdida` son el estado de la cadencia. En la
 // ficha de un cliente no significan nada y pueden hacer salir un WhatsApp.
@@ -143,6 +146,16 @@ export function loQueFalta(registro, fuente, { leads = [], nacio = null, permiti
   return (Object.keys(campos).length || etiquetas.length) ? { campos, etiquetas } : null;
 }
 
+/**
+ * El trato toma el Idioma de su contacto aunque el candado del tiempo frene el resto.
+ * NO se adivina por teléfono: medido 4-nov, 3 de 4 clientes con +55 sin idioma eran
+ * hispanohablantes viviendo en Brasil (Peiretti, Ramírez, Barrientos). Nunca pisa.
+ */
+export function idiomaDelContacto(registro, falta, existentes, contacto = registro) {
+  if (!existentes.has('Idioma') || registro.Idioma || falta?.campos?.Idioma || contacto === registro || !contacto?.Idioma) return falta;
+  return { campos: { ...(falta?.campos || {}), Idioma: contacto.Idioma }, etiquetas: falta?.etiquetas || [] };
+}
+
 export async function pasadaOrigen({ aplicar = true } = {}) {
   const desde = Date.now();
   const esquema = { Leads: await camposDe('Leads'), Contacts: await camposDe('Contacts'), Deals: await camposDe('Deals') };
@@ -182,7 +195,7 @@ export async function pasadaOrigen({ aplicar = true } = {}) {
     const suyos = leadsDe(c);
     const nacio = clienteDesde.get(c.id) || null;
     const lead = suyos.filter((l) => !nacio || new Date(l.Created_Time) <= new Date(nacio)).sort((a, b) => (a.Created_Time < b.Created_Time ? -1 : 1))[0] || null;
-    const falta = loQueFalta(c, lead, { leads: suyos, nacio, permitidos: campoDe.Contacts });
+    let falta = loQueFalta(c, lead, { leads: suyos, nacio, permitidos: campoDe.Contacts });
     if (falta) pendientes.Contacts.push({ modulo: 'Contacts', id: c.id, quien: c.Full_Name, desde: `lead ${lead?.Full_Name}`, ...falta });
     quedara.set(c.id, { ...c, ...(falta?.campos || {}), Tag: [...tags(c), ...(falta?.etiquetas || [])].map((name) => ({ name })) });
   }
@@ -204,7 +217,8 @@ export async function pasadaOrigen({ aplicar = true } = {}) {
     }
     const c = quedara.get(idc);
     if (!c) continue;
-    const falta = loQueFalta(d, c, { leads: leadsDe(c), nacio: d.Created_Time, permitidos: campoDe.Deals });
+    let falta = loQueFalta(d, c, { leads: leadsDe(c), nacio: d.Created_Time, permitidos: campoDe.Deals });
+    falta = idiomaDelContacto(d, falta, esquema.Deals, c);
     if (falta) pendientes.Deals.push({ modulo: 'Deals', id: d.id, quien: d.Deal_Name, desde: `contacto ${c.Full_Name}`, ...falta });
   }
 
