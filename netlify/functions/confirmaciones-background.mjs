@@ -25,6 +25,7 @@ import { unaPasada as avisosDelDiaPasada } from './lib/conversaciones/tercer-avi
 import { unaPasada as liberarPasada } from './lib/conversaciones/liberar-sin-confirmar.js';
 import { revisarPlantillas } from './lib/conversaciones/plantilla-pendiente.js';
 import { unaPasada as invitarThais } from './lib/conversaciones/invitar-thais.js';
+import { unaPasada as asistioAThais } from './lib/conversaciones/asistio-thais.js';
 import { env } from './lib/conversaciones/entorno.js';
 import { ZOHO_UI } from './lib/conversaciones/config.js';
 
@@ -309,6 +310,19 @@ export default async (req) => {
       }
     } catch (e) {
       console.error(`${sello()}  invitar Thais FALLO: ${e.message}`);
+    }
+
+    // Marcó Asistió en una reunión en portugués: el lead pasa a Thais (ver lib/conversaciones/asistio-thais.js).
+    try {
+      const at = await asistioAThais({ escribir: !seco });
+      for (const x of at.fallidos) {
+        const clave = `asistio-thais:${x.id}`;
+        if (avisados.has(clave)) continue;
+        avisados.add(clave);
+        await aSlack(`:rotating_light: No pude pasar a Thais el lead ${x.nombre}: ${x.error}`).catch(() => {});
+      }
+    } catch (e) {
+      console.error(`${sello()}  asistio a Thais FALLO: ${e.message}`);
     }
 
     // Plantillas de WhatsApp esperando a Meta. 1 llamada cada 2 h como mucho, y se

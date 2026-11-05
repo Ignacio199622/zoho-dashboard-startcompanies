@@ -73,6 +73,17 @@ export function mailDelCliente(reunion) {
   return externos[0]?.email || null;
 }
 
+/**
+ * 'pt' si la llamada fue en portugues. Manda el idioma que detecta Fathom; el
+ * titulo del calendario de Brasil solo decide cuando Fathom no sabe.
+ */
+export function idiomaDeLlamada(reunion) {
+  const lang = String(reunion?.transcript_language || '').toLowerCase();
+  if (lang.startsWith('pt')) return 'pt';
+  if ((!lang || lang === 'unknown') && /avalia[cç][aã]o/i.test(reunion?.title || '')) return 'pt';
+  return null;
+}
+
 export function duracionMin(reunion) {
   if (!reunion.recording_start_time || !reunion.recording_end_time) return null;
   return Math.round(

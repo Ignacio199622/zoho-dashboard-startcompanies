@@ -21,10 +21,10 @@
  */
 import { getStore } from '@netlify/blobs';
 import { env } from './lib/entorno.js';
-import { reunionesRecientes, transcripcionATexto, mailDelCliente, duracionMin } from './lib/fathom.js';
+import { reunionesRecientes, transcripcionATexto, mailDelCliente, duracionMin, idiomaDeLlamada } from './lib/fathom.js';
 import { analizarLlamada } from './lib/extraer.js';
-import { armarDescripcion, armarNota } from './lib/escribir.js';
-import { usuarioDesdeNombre, estadoDelLead, modalidadDeCierre, canalDesdeLanding } from './lib/mapeos.js';
+import { armarDescripcion, armarNota, tituloNota } from './lib/escribir.js';
+import { usuarioDesdeNombre, estadoDelLead, modalidadDeCierre, canalDesdeLanding, THAIS_BR_ID } from './lib/mapeos.js';
 import { TITULOS_DE_VENTA, PATRONES_PRUEBA, MINIMO_LINEAS_TRANSCRIPCION } from './lib/config.js';
 import { conReintento, dormir } from './lib/reintentar.js';
 import { reunionDeCliente, registrarLlamadaCliente, publicarTarjetaCliente } from './lib/clientes.js';
@@ -156,6 +156,7 @@ export default async () => {
       const clave = m.recording_id || m.url;
       const titulo = String(m.title || '').replace(/[^\x20-\x7EáéíóúüñÁÉÍÓÚÑ]/g, '').trim();
       const mail = mailDelCliente(m);
+      const idioma = idiomaDeLlamada(m);
       try {
         if (!mail) {
           avisos.push({ texto: 'llamada sin mail de cliente', contexto: { titulo: titulo.slice(0, 40) } });
@@ -170,6 +171,7 @@ export default async () => {
             duracionMin: duracionMin(m),
             transcripcion: transcripcionATexto(m),
             resumenFathom: typeof m.default_summary === 'string' ? m.default_summary : null,
+            idioma,
           })
         );
         analisisNuevos.push({ titulo, fecha: m.scheduled_start_time, minutos: duracionMin(m), url: m.url, mail, extraido: datos });
@@ -181,7 +183,7 @@ export default async () => {
         // "que no se mezclen". Ver lib/clientes.js.
         const rc = await reunionDeCliente(zoho, { mail, fecha: m.scheduled_start_time });
         if (rc) {
-          const llamada = { fecha: m.scheduled_start_time, minutos: duracionMin(m), url: m.url };
+          const llamada = { fecha: m.scheduled_start_time, minutos: duracionMin(m), url: m.url, idioma };
           const hecho = await registrarLlamadaCliente(zoho, { ...rc, datos, llamada, nota: armarNota(datos, llamada) });
           const pub = await publicarTarjetaCliente({ ...rc, datos, llamada, abordado: hecho.abordado }).catch((e) => ({ enviado: false, motivo: e.message }));
           avisos.push({ texto: 'llamada de cliente registrada en su reunion', contexto: { cliente: rc.contacto.Full_Name, campos: Object.keys(hecho.campos).join(','), slack: pub.enviado ? 'ok' : pub.motivo } });
@@ -202,7 +204,7 @@ export default async () => {
         }
 
         const campos = {};
-        if (vacio(lead.Description)) campos.Description = armarDescripcion(datos);
+        if (vacio(lead.Description)) campos.Description = armarDescripcion(datos, idioma);
         const mc = modalidadDeCierre(datos.resultado);
         if (mc.valor && vacio(lead.Modalidad_de_Cierre)) campos.Modalidad_de_Cierre = mc.valor;
         // 18-sep-2026: el canal va a Lead_Source ("Fuente"); Landing_Origen guarda la pagina.
@@ -219,14 +221,30 @@ export default async () => {
         const nota = {
           data: [
             {
-              Note_Title: 'Analisis de llamada',
-              Note_Content: armarNota(datos, { fecha: m.scheduled_start_time, minutos: duracionMin(m), url: m.url }).slice(0, 32000),
+              Note_Title: tituloNota(idioma),
+              Note_Content: armarNota(datos, { fecha: m.scheduled_start_time, minutos: duracionMin(m), url: m.url, idioma }).slice(0, 32000),
               Parent_Id: { module: { api_name: 'Leads' }, id: lead.id },
             },
           ],
         };
         const rn = await zoho('Notes', { method: 'POST', body: JSON.stringify(nota) });
         if ((rn.data || [])[0]?.code !== 'SUCCESS') throw new Error(`nota: ${(rn.data || [])[0]?.code}`);
+
+        // La nota ya esta escrita: si algo falla de aca en adelante, la llamada no
+        // se vuelve a procesar. Marcarla recien al final dejo decenas de notas
+        // iguales en Sauer entre el 29-oct y el 1-nov, una por hora.
+        yaProcesadas.add(clave);
+        await guardarProcesadas();
+
+        // Antes de la reunion el lead en portugues es de Daniel; despues de la reunion queda
+        // de Thais (Ignacio, 5-nov-2026). Va aparte y
+        // sin triggers para no despertar cadencias ni depender del PUT de abajo.
+        if (idioma === 'pt' && lead.Owner?.id !== THAIS_BR_ID) {
+          const ro = await zoho('Leads', { method: 'PUT', body: JSON.stringify({ data: [{ id: lead.id, Owner: { id: THAIS_BR_ID }, Etapa_Thais: 'Reunião feita', Etapa_Daniel: 'Asistió' }], trigger: [] }) });
+          const ro0 = (ro.data || [])[0];
+          if (ro0?.code === 'SUCCESS') avisos.push({ texto: 'lead en portugues con reunion pasado a Thais', contexto: { lead: lead.Full_Name, antes: lead.Owner?.name } });
+          else errores.push({ donde: 'propietario Thais', mensaje: `${ro0?.code} ${ro0?.message}`, contexto: { lead: lead.Full_Name } });
+        }
 
         if (Object.keys(campos).length) {
           const r = await zoho('Leads', { method: 'PUT', body: JSON.stringify({ data: [{ id: lead.id, ...campos }] }) });

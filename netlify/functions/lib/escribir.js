@@ -42,52 +42,92 @@ async function api(path, opciones = {}) {
 
 const vacio = (v) => v === null || v === undefined || String(v).trim() === '';
 
+const TEXTOS = {
+  es: {
+    titulo: 'Analisis de llamada',
+    encabezado: 'Analisis automatico de la llamada del',
+    resultado: 'Resultado', interes: 'Interes', atendio: 'Atendio', pais: 'Pais', dedica: 'Se dedica a',
+    motivo: 'Motivo de la LLC', estructura: 'Estructura', estado: 'Estado de registro',
+    pago: 'Medio de pago mencionado', precio: 'Precio discutido', objecion: 'Objecion',
+    paso: 'Proximo paso', responsable: 'Responsable del proximo paso',
+    senales: 'Senales de compra', riesgos: 'Riesgos', grabacion: 'Grabacion',
+    valores: {},
+  },
+  pt: {
+    titulo: 'Análise da ligação',
+    encabezado: 'Análise automática da ligação de',
+    resultado: 'Resultado', interes: 'Interesse', atendio: 'Atendeu', pais: 'País', dedica: 'Atividade',
+    motivo: 'Motivo da LLC', estructura: 'Estrutura', estado: 'Estado de registro',
+    pago: 'Meio de pagamento mencionado', precio: 'Preço discutido', objecion: 'Objeção',
+    paso: 'Próximo passo', responsable: 'Responsável pelo próximo passo',
+    senales: 'Sinais de compra', riesgos: 'Riscos', grabacion: 'Gravação',
+    valores: {
+      cerro_en_la_llamada: 'fechou na ligação',
+      no_cerro_quedo_pendiente: 'não fechou, ficou pendente',
+      no_calificado: 'não qualificado',
+      solo_informativa: 'apenas informativa',
+      soporte_cliente_actual: 'suporte a cliente atual',
+      alto: 'alto', medio: 'médio', bajo: 'baixo',
+      single_member: 'um sócio (single member)', multi_member: 'vários sócios (multi member)',
+      cliente: 'cliente', start_companies: 'Start Companies',
+    },
+  },
+};
+const textos = (idioma) => TEXTOS[idioma] || TEXTOS.es;
+
+/** El titulo de la nota, en el idioma de la llamada. */
+export const tituloNota = (idioma) => textos(idioma).titulo;
+
 /** El texto de la nota que se adjunta al lead. */
 export function armarNota(analisis, llamada) {
   const d = analisis;
+  const T = textos(llamada.idioma);
+  const v = (x) => T.valores[x] ?? x;
   const L = [];
-  L.push(`Analisis automatico de la llamada del ${String(llamada.fecha || '').slice(0, 10)}` +
+  L.push(`${T.encabezado} ${String(llamada.fecha || '').slice(0, 10)}` +
     (llamada.minutos ? ` (${llamada.minutos} min)` : ''));
   L.push('');
-  const f = (k, v) => { if (!vacio(v)) L.push(`${k}: ${v}`); };
-  f('Resultado', d.resultado);
-  f('Interes', d.nivel_de_interes);
-  f('Atendio', d.vendedor);
-  f('Pais', d.pais);
-  f('Se dedica a', d.a_que_se_dedica);
-  f('Motivo de la LLC', d.motivo_llc);
-  f('Estructura', d.estructura);
-  f('Estado de registro', d.estado_registro);
-  f('Medio de pago mencionado', d.medio_de_pago);
-  f('Precio discutido', d.precio_discutido);
-  f('Objecion', d.objecion);
-  f('Proximo paso', d.proximo_paso);
-  f('Responsable del proximo paso', d.responsable_proximo_paso);
+  const f = (k, x) => { if (!vacio(x)) L.push(`${k}: ${x}`); };
+  f(T.resultado, v(d.resultado));
+  f(T.interes, v(d.nivel_de_interes));
+  f(T.atendio, d.vendedor);
+  f(T.pais, d.pais);
+  f(T.dedica, d.a_que_se_dedica);
+  f(T.motivo, d.motivo_llc);
+  f(T.estructura, v(d.estructura));
+  f(T.estado, d.estado_registro);
+  f(T.pago, d.medio_de_pago);
+  f(T.precio, d.precio_discutido);
+  f(T.objecion, d.objecion);
+  f(T.paso, d.proximo_paso);
+  f(T.responsable, v(d.responsable_proximo_paso));
   if (d.senales_de_compra?.length) {
     L.push('');
-    L.push('Senales de compra:');
+    L.push(`${T.senales}:`);
     for (const s of d.senales_de_compra) L.push(`  - ${s}`);
   }
   if (d.riesgos?.length) {
     L.push('');
-    L.push('Riesgos:');
+    L.push(`${T.riesgos}:`);
     for (const s of d.riesgos) L.push(`  - ${s}`);
   }
   if (llamada.url) {
     L.push('');
-    L.push(`Grabacion: ${llamada.url}`);
+    L.push(`${T.grabacion}: ${llamada.url}`);
   }
   return L.join('\n');
 }
 
 /** La descripcion corta que va al campo Description, solo si esta vacio. */
-export function armarDescripcion(analisis) {
+export function armarDescripcion(analisis, idioma) {
   const d = analisis;
+  const T = textos(idioma);
   const partes = [d.resumen];
-  if (!vacio(d.objecion)) partes.push(`Objecion: ${d.objecion}`);
+  if (!vacio(d.objecion)) partes.push(`${T.objecion}: ${d.objecion}`);
   if (!vacio(d.proximo_paso)) {
-    const quien = d.responsable_proximo_paso ? ` (${d.responsable_proximo_paso})` : '';
-    partes.push(`Proximo paso${quien}: ${d.proximo_paso}`);
+    const r = d.responsable_proximo_paso;
+    const quien = r ? ` (${T.valores[r] ?? r})` : '';
+    partes.push(`${T.paso}${quien}: ${d.proximo_paso}`);
   }
   return partes.filter(Boolean).join(' | ').slice(0, 30000);
 }

@@ -66,11 +66,15 @@ Sobre el resultado de la llamada:
 
 En "riesgos" pone lo concreto que puede hacer caer la venta (una decision que quedo sin fecha, un viaje, una duda no resuelta), no riesgos genericos.`;
 
+// Los enums quedan como estan: de ellos salen el estado del lead y la modalidad.
+const EN_PORTUGUES = `IDIOMA DE LA RESPUESTA: esta llamada es en portugues y la lee el equipo de Brasil. Escribi todos los textos libres (a_que_se_dedica, motivo_llc, objecion, proximo_paso, senales_de_compra, riesgos, resumen, pais, medio_de_pago, precio_discutido) en portugues de Brasil. Los campos con valores fijos (resultado, nivel_de_interes, estructura, responsable_proximo_paso) van exactamente como figuran en el esquema, sin traducir.`;
+
 /**
  * @returns {Promise<{datos: object, uso: object}>}
  */
-export async function analizarLlamada({ titulo, fecha, duracionMin, transcripcion, resumenFathom }) {
+export async function analizarLlamada({ titulo, fecha, duracionMin, transcripcion, resumenFathom, idioma }) {
   const texto = transcripcion.slice(0, MAX_CARACTERES_TRANSCRIPCION);
+  const instrucciones = idioma === 'pt' ? `${INSTRUCCIONES}\n\n${EN_PORTUGUES}` : INSTRUCCIONES;
 
   const contexto = [
     `TITULO: ${titulo || '(sin titulo)'}`,
@@ -85,7 +89,7 @@ export async function analizarLlamada({ titulo, fecha, duracionMin, transcripcio
   if (PROVEEDOR === 'gemini') {
     return generarGemini({
       modelo: MODELO_GEMINI,
-      instrucciones: INSTRUCCIONES,
+      instrucciones,
       contenido: contexto,
       esquema: ESQUEMA,
     });
@@ -99,7 +103,7 @@ export async function analizarLlamada({ titulo, fecha, duracionMin, transcripcio
   const respuesta = await cliente.messages.create({
     model: MODELO_ANTHROPIC,
     max_tokens: 4000,
-    system: INSTRUCCIONES,
+    system: instrucciones,
     output_config: { format: { type: 'json_schema', schema: ESQUEMA } },
     messages: [{ role: 'user', content: contexto }],
   });

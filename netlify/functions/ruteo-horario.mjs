@@ -1,7 +1,7 @@
 // Ruteo en horario: cada 10 minutos aplica el Estado_pendiente de los leads cuando es de día en su
 // país (ver lib/ruteo-horario.js). Avisa en #control-crm solo si algo falla.
 import { env } from './lib/entorno.js';
-import { tokenActual } from './lib/control-crm/zoho.js';
+import { tokenActual, olvidarToken } from './lib/control-crm/zoho.js';
 import { avisarFalla } from './lib/aviso-falla.js';
 import { decidir } from './lib/ruteo-horario.js';
 
@@ -12,12 +12,22 @@ const APLICAR = env.RUTEO_HORARIO_APLICAR !== '0';
 
 export default async () => {
   try {
-    const H = { Authorization: `Zoho-oauthtoken ${await tokenActual()}`, 'Content-Type': 'application/json' };
+    const encabezados = async () => ({ Authorization: `Zoho-oauthtoken ${await tokenActual()}`, 'Content-Type': 'application/json' });
+    let H = await encabezados();
+    let renovado = false;
     const leads = [];
     for (let page = 1; page <= 5; page++) {
       const r = await fetch(`${API}/Leads/search?criteria=${encodeURIComponent(CRITERIO)}&fields=Full_Name,Lead_Status,Estado_pendiente,reserva,Mobile,Phone,Created_Time,Modified_Time&per_page=200&page=${page}`, { headers: H });
       if (r.status === 204) break;
       const j = await r.json();
+      // Otra función pudo haber invalidado el token guardado: se pide uno nuevo y se reintenta una vez.
+      if (j.code === 'INVALID_TOKEN' && !renovado) {
+        renovado = true;
+        olvidarToken();
+        H = await encabezados();
+        page--;
+        continue;
+      }
       if (!j.data) throw new Error(`búsqueda Zoho: ${JSON.stringify(j).slice(0, 160)}`);
       leads.push(...j.data);
       if (!j.info?.more_records) break;

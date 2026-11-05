@@ -23,6 +23,9 @@ export const USUARIOS = {
   '6698625000002191001': { nombre: 'Ignacio Campo', mail: 'ignaciocampo@startcompanies.net', vende: false, area: 'filing' },
   '6698625000023935001': { nombre: 'Daniel Alvarado', mail: 'dany@thepauta.com', vende: false },
   '6698625000050962001': { nombre: 'Adrián Darío Calabró', mail: 'calabroadrian@gmail.com', vende: false },
+  // Brasil: el lead en portugues es de Daniel hasta la reunion; despues queda de Thais (THAIS_BR_ID).
+  '6698625000063172001': { nombre: 'Thais Monteiro', mail: 'thais@startcompanies.net', vende: true },
+  '6698625000063175001': { nombre: 'Daniel Dos Santos Da Costa', mail: 'daniel@startcompanies.net', vende: true },
   '6698625000000502001': { nombre: 'Start Companies Staff', mail: 'administracion@startcompanies.net', generico: true },
 
   // Altas nuevas, leidas de /users el 2026-09-03. La lista anterior era del
@@ -41,6 +44,7 @@ export const USUARIOS = {
 
 // Ya no hay ambiguedad entre los dos Ignacios: Campo hace filing y no vende,
 // asi que en una llamada de ventas "Ignacio" solo puede ser Navarro.
+export const THAIS_BR_ID = '6698625000063172001';
 export const IGNACIO_POR_DEFECTO = '6698625000002192001'; // Ignacio Navarro
 
 const NORM = (s) =>

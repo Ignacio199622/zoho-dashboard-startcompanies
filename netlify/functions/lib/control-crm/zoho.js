@@ -90,6 +90,12 @@ export async function get(path) {
 // "too many requests" si se piden varios seguidos.
 export async function tokenActual() { return token(); }
 
+// Para quien usa el token crudo: si Zoho lo rechaza, se tira y el proximo tokenActual pide uno nuevo.
+export function olvidarToken() {
+  memoria = null;
+  try { if (existsSync(CACHE)) unlinkSync(CACHE); } catch { /* si no se puede borrar, se pide uno nuevo igual */ }
+}
+
 export async function paginado(modulo, campos, extra = '', maxLotes = 200) {
   const out = [];
   let pageToken = null;
