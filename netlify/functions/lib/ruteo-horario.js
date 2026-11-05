@@ -10,7 +10,7 @@
  * Cómo: las reglas de ruteo ya no ponen Lead_Status: sus acciones "Estado - X" escriben el campo
  * Estado_pendiente. Esto lo aplica (Lead_Status = pendiente, POR LA API CON WORKFLOWS, que dispara
  * las mismas reglas que antes) cuando en el país del lead son entre 10 y 20 h. Toda la cadencia
- * queda anclada a esa hora. Quien entra de día espera como mucho una vuelta (10 min).
+ * queda anclada a esa hora. El lead recién creado (form, WhatsApp) se aplica en la próxima vuelta (2 min) a cualquier hora: el primer mensaje sale en el momento.
  *
  * Candados: si el lead ya cambió de etapa por otro lado (reservó, lo movió alguien) no se pisa: solo
  * se limpia el pendiente. Si lleva más de 16 h esperando (falla, país raro) se aplica igual.
@@ -18,7 +18,7 @@
  * ruteo-horario-antes.json (las acciones de campo originales) y apagar esta función.
  */
 const VENTAS = /^(Reunión Agendada|No Show|En Calificación|Calificado|No Calificado|Cierrado ganado|Cerrado ganado|Cerrado perdido|Not Qualified|Junk Lead|Lost Lead|Fuera de flujo)$/i;
-export const DESDE = 10, HASTA = 20, ESPERA_MAX_H = 16;
+export const DESDE = 10, HASTA = 20, ESPERA_MAX_H = 16, RECIEN_MIN = 30;
 // Prefijo de teléfono -> zona horaria. El más largo gana. Sin teléfono o sin match: Buenos Aires.
 const ZONAS = {
   '54': 'America/Argentina/Buenos_Aires', '55': 'America/Sao_Paulo', '56': 'America/Santiago', '57': 'America/Bogota',
@@ -55,6 +55,9 @@ export function decidir(lead, ahora = new Date()) {
     return { accion: 'limpiar', motivo: `ya está en ${estado || 'reserva'}`, zona, hora };
   }
   const esperaH = (ahora - new Date(lead.Created_Time || ahora)) / 36e5;
+  // Recién llegado (form, WhatsApp, reserva): el primer mensaje sale en el momento, a cualquier hora
+  // (Ignacio 5-nov: "deberia llegar al momento"). Solo esperan los cambios de etapa posteriores.
+  if (esperaH * 60 < RECIEN_MIN) return { accion: 'aplicar', motivo: `recién entró (${Math.round(esperaH * 60)} min)`, zona, hora };
   if (hora >= DESDE && hora < HASTA) return { accion: 'aplicar', motivo: `${hora.toFixed(1)} h en ${zona}`, zona, hora };
   // El tope es para leads nuevos (si algo falla no quedan sin cadencia). Uno viejo que cambia de etapa de noche espera a la mañana.
   if (esperaH > ESPERA_MAX_H && esperaH < 72) return { accion: 'aplicar', motivo: `esperó ${Math.round(esperaH)} h (tope)`, zona, hora };

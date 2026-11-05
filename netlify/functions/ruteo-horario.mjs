@@ -49,4 +49,5 @@ export default async () => {
   }
 };
 
-export const config = { schedule: '*/10 * * * *' };
+// Cada 2 minutos: el lead nuevo recibe el primer mensaje casi en el momento.
+export const config = { schedule: '*/2 * * * *' };
