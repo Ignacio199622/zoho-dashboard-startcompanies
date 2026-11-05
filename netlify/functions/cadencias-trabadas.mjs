@@ -24,7 +24,7 @@ const API = 'https://www.zohoapis.com/crm/v6';
 const CANAL = env.CADENCIAS_TRABADAS_CANAL || 'C0BUSC1K8TY'; // #control-crm
 const APLICAR = env.CADENCIAS_TRABADAS_APLICAR !== '0';
 const ESPERA_MS = 2 * 3600e3;
-const CAMPOS = 'Full_Name,Lead_Status,Idioma,Cuentas_con_500_USD_para_invertir,reserva,Tipo,Tag,Activar_Reglas_del_flujo_de_trabajo,Mobile,Phone,Created_Time,Lead_Source';
+const CAMPOS = 'Full_Name,Estado_pendiente,Lead_Status,Idioma,Cuentas_con_500_USD_para_invertir,reserva,Tipo,Tag,Activar_Reglas_del_flujo_de_trabajo,Mobile,Phone,Created_Time,Lead_Source';
 
 const esBrasil = (l) => /^\+?55\d{10,11}$/.test(String(l.Mobile || l.Phone || '').replace(/[^\d+]/g, ''));
 const tiene = (l, n) => (l.Tag || []).some((t) => t.name === n);
@@ -46,7 +46,8 @@ async function buscar(H, criterio) {
 export function clasificar(leads, ahora = Date.now()) {
   const cambios = [];
   for (const l of leads) {
-    if (l.reserva || ahora - new Date(l.Created_Time).getTime() < ESPERA_MS) continue;
+    // Estado_pendiente = lo está esperando ruteo-horario para la hora buena de su país: no tocarlo.
+    if (l.reserva || l.Estado_pendiente || ahora - new Date(l.Created_Time).getTime() < ESPERA_MS) continue;
     if (tiene(l, 'Form Apertura Brasil')) {
       const no = /^n/i.test(String(l.Cuentas_con_500_USD_para_invertir || ''));
       cambios.push({ l, grupo: 'Brasil', set: { Idioma: 'Português', Lead_Status: no ? 'Nurturing' : 'Captación', ...(no ? {} : { flujo_normal: true }) } });
