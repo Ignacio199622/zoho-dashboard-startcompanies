@@ -107,38 +107,41 @@ export const ES_PRUEBA = (nombre = '', mail = '') =>
 // "Start Companies Staff", asi que el dueño no dice nada de quien deberia
 // atenderla.
 export const EQUIPOS = {
-  ventas: { nombre: 'Ventas', personas: ['Santiago'] },
-  cx: { nombre: 'CX', personas: ['Camila', 'Guadalupe'] },
-  admin: { nombre: 'Administración', personas: ['Ignacio Campo', 'Pablo'] },
+  // 7-nov-2026: Ignacio reordeno Slack por equipo. Ventas = Santi, Camila y
+  // Daniel; soporte = Ignacio Campo y Sofia; renovaciones = Ignacio Campo y Pablo.
+  ventas: { nombre: 'Ventas', personas: ['Santiago', 'Camila', 'Daniel'] },
+  cx: { nombre: 'Soporte', personas: ['Ignacio Campo', 'Sofía'] },
+  admin: { nombre: 'Renovaciones', personas: ['Ignacio Campo', 'Pablo'] },
   referidos: { nombre: 'Referidos', personas: ['Ignacio Campo', 'Santiago'] },
 };
 
 // El primero de la lista es a quien le toca; los que siguen van en copia.
-// Camila y Guadalupe son la primera linea de todo lo que no es venta nueva:
-// atienden ellas y escalan a Ignacio Campo y Pablo cuando hace falta.
+// Sin copias cruzadas: cada aviso cae en un solo canal (antes todo iba a
+// #alertas-mensajes, 1.800 mensajes por semana, y nadie lo leia).
 export const RUTEO = {
   venta_nueva: ['ventas'],
   partnership: ['ventas'],
   referidos: ['referidos'],
-  renovacion: ['cx', 'admin'],
-  administrativo: ['cx', 'admin'],
+  renovacion: ['admin'],
+  administrativo: ['cx'],
   bancario: ['cx'],
   cx: ['cx'],
 };
 
 // Un cliente enojado es un problema de retencion aunque el tema sea bancario o
 // administrativo. Con esto, CX recibe copia de los riesgos que se van a otro canal.
-export const COPIA_CX_EN_RIESGO = env.COPIA_CX_EN_RIESGO !== 'false';
+export const COPIA_CX_EN_RIESGO = env.COPIA_CX_EN_RIESGO === 'true';
 
 // Para que la alerta arranque con un @ de verdad hay que poner el ID de Slack de
 // cada uno (en Slack: perfil → ... → Copiar id de miembro). Sin esto se nombra
 // a la persona en texto plano, que igual funciona pero no notifica.
 export const MENCIONES = {
-  Santiago: env.SLACK_ID_SANTIAGO || null,
-  Camila: env.SLACK_ID_CAMILA || null,
-  Guadalupe: env.SLACK_ID_GUADALUPE || null,
-  'Ignacio Campo': env.SLACK_ID_IGNACIO_CAMPO || null,
-  Pablo: env.SLACK_ID_PABLO || null,
+  Santiago: env.SLACK_ID_SANTIAGO || 'U0AF0PMM6KG',
+  Camila: env.SLACK_ID_CAMILA || 'U0BC9RW65K4',
+  Daniel: env.SLACK_ID_DANIEL || 'U0CASLVM5QS',
+  'Sofía': env.SLACK_ID_SOFIA || 'U0C696BHWRY',
+  'Ignacio Campo': env.SLACK_ID_IGNACIO_CAMPO || 'U08LT8252Q3',
+  Pablo: env.SLACK_ID_PABLO || 'U0BTT434078',
 };
 
 export const nombrar = (persona) =>
@@ -157,8 +160,27 @@ const WEBHOOK_POR_EQUIPO = {
   referidos: env.SLACK_WEBHOOK_REFERIDOS,
 };
 
+// Canal de cada equipo (7-nov-2026). Va por bot token (chat.postMessage): un
+// webhook entrante queda atado a un solo canal y habria que crear uno por
+// equipo a mano. El bot "Avisos SC - ALERTAS" ya esta invitado a estos canales.
+// Si no hay bot token, cae al webhook de antes.
+export const CANAL_POR_EQUIPO = {
+  ventas: env.SLACK_CANAL_VENTAS || 'C0CFYBBD0UC', // #ventas
+  cx: env.SLACK_CANAL_SOPORTE || 'C0CGP1RJ4L8', // #soporte
+  admin: env.SLACK_CANAL_RENOVACIONES || 'C0CFWH27YQZ', // #renovaciones-llc
+  referidos: env.SLACK_CANAL_VENTAS || 'C0CFYBBD0UC', // #ventas
+};
+export const SLACK_BOT_TOKEN = env.SLACK_BOT_TOKEN || null;
+
 export const webhookDe = (equipo) => WEBHOOK_POR_EQUIPO[equipo] || SLACK_WEBHOOK_URL || null;
 
-export const HAY_SLACK = Boolean(SLACK_WEBHOOK_URL || Object.values(WEBHOOK_POR_EQUIPO).some(Boolean));
+export const HAY_SLACK = Boolean(
+  SLACK_BOT_TOKEN || SLACK_WEBHOOK_URL || Object.values(WEBHOOK_POR_EQUIPO).some(Boolean)
+);
+
+// El recordatorio de ventas sin cerrar sale UNA vez por dia, todo junto, en la
+// primera pasada desde esta hora (Argentina). Antes salia un mensaje por lead
+// cada vez que vencia el plazo: 345 por semana.
+export const HORA_RESUMEN_VENTAS = Number(env.HORA_RESUMEN_VENTAS || 9);
 
 export const ZOHO_UI = 'https://crm.zoho.com/crm/org881745849/tab';

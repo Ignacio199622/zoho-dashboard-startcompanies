@@ -7,6 +7,8 @@ import {
   COPIA_CX_EN_RIESGO,
   nombrar,
   webhookDe,
+  CANAL_POR_EQUIPO,
+  SLACK_BOT_TOKEN,
 } from './config.js';
 import { CATEGORIAS, TEMAS } from './clasificar.js';
 
@@ -114,71 +116,103 @@ async function postear(url, cuerpo) {
   if (!r.ok) throw new Error(`Slack HTTP ${r.status}: ${txt.slice(0, 200)}`);
 }
 
+/**
+ * Publica en el canal del equipo con el bot. Si no hay bot token o el canal no
+ * acepta (el bot no esta invitado), cae al webhook de siempre: un aviso en el
+ * canal equivocado es mejor que un aviso perdido.
+ * Devuelve false si no hay a donde mandarlo (modo sombra).
+ */
+async function postearEquipo(clave, cuerpo) {
+  const canal = CANAL_POR_EQUIPO[clave];
+  if (SLACK_BOT_TOKEN && canal) {
+    try {
+      const r = await fetch('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+        body: JSON.stringify({ channel: canal, unfurl_links: false, ...cuerpo }),
+      });
+      const j = await r.json();
+      if (j.ok) return true;
+      console.error(`Slack ${canal}: ${j.error}, va por webhook`);
+    } catch (e) {
+      console.error(`Slack ${canal}: ${e.message}, va por webhook`);
+    }
+  }
+  const url = webhookDe(clave);
+  if (!url) return false;
+  await postear(url, cuerpo);
+  return true;
+}
+
 export async function enviar(alerta) {
   const salidas = [];
   for (const equipo of destinos(alerta)) {
     const cuerpo = armarMensaje(alerta, equipo);
-    const url = webhookDe(equipo.clave);
-    if (!url) {
+    if (!(await postearEquipo(equipo.clave, cuerpo))) {
       salidas.push({ equipo: equipo.clave, enviado: false, motivo: 'sin webhook (modo sombra)', cuerpo });
       continue;
     }
-    await postear(url, cuerpo);
     salidas.push({ equipo: equipo.clave, enviado: true, cuerpo });
   }
   return salidas;
 }
 
 /**
- * Aviso de una venta que quedó abierta. Es distinto de las otras alertas: acá
- * el equipo YA contestó, y el problema es que la cosa quedó ahí.
+ * Ventas abiertas: UN mensaje por dia y por equipo, con la lista entera.
+ * Antes salia un mensaje por lead cada vez que vencia el plazo (345 por semana
+ * en #alertas-mensajes) y nadie los leia. Ahora sale a las 9:00 en #ventas:
+ * las que siguen sin cerrar, con los dias, el link a Zoho y lo ultimo de la
+ * charla, y las que se movieron en el CRM y dejan de aparecer.
  */
-export async function avisarVentaAbierta(v) {
-  const equipo = EQUIPOS[RUTEO[v.tema]?.[0] || 'ventas'];
-  const quienes = (equipo.personas || []).map(nombrar).join(' ');
-  const link = v.ficha ? linkZoho({ modulo: v.ficha.modulo, id: v.ficha.id }) : null;
-  const cita = (t, n) => String(t).slice(0, n).split('\n').join('\n> ');
+export async function avisarResumenVentas(aInsistir = [], cerradas = []) {
+  if (!aInsistir.length && !cerradas.length) return { enviado: false };
+  const porEquipo = {};
+  const clave = (v) => RUTEO[v.tema]?.[0] || 'ventas';
+  for (const v of aInsistir) (porEquipo[clave(v)] ||= { abiertas: [], cerradas: [] }).abiertas.push(v);
+  for (const v of cerradas) (porEquipo[clave(v)] ||= { abiertas: [], cerradas: [] }).cerradas.push(v);
 
-  const partes = [
-    `💰 *Venta sin cerrar hace ${v.diasAbierta} días* · ${quienes}\n${v.quien}: ${v.resumen}`,
-    `*Pidió:*\n> ${cita(v.mensaje, 300)}`,
-  ];
-
-  if (v.ultimoMensajeDeLaCharla) {
-    const quien = v.quienContestoUltimo ? `*Último, de ${v.quienContestoUltimo}:*` : '*Último en la charla:*';
-    partes.push(`${quien}\n> ${cita(v.ultimoMensajeDeLaCharla, 250)}`);
+  const salidas = [];
+  for (const [k, g] of Object.entries(porEquipo)) {
+    const equipo = EQUIPOS[k] || EQUIPOS.ventas;
+    const quienes = (equipo.personas || []).map(nombrar).join(' ');
+    const linea = (v) => {
+      const link = v.ficha ? linkZoho({ modulo: v.ficha.modulo, id: v.ficha.id }) : null;
+      const nombre = link ? `<${link}|${v.quien}>` : `*${v.quien}*`;
+      const ultimo = v.ultimoMensajeDeLaCharla
+        ? ` · _último${v.quienContestoUltimo ? ` de ${v.quienContestoUltimo}` : ''}: "${String(v.ultimoMensajeDeLaCharla).slice(0, 90).replace(/\n/g, ' ')}"_`
+        : '';
+      return `• ${nombre} · ${v.diasAbierta} días · ${String(v.resumen || '').slice(0, 120)}${ultimo}`;
+    };
+    const titulo = k === 'admin' ? 'Renovaciones sin cerrar hoy' : 'Ventas sin cerrar hoy';
+    const abiertas = [...g.abiertas].sort((a, b) => b.diasAbierta - a.diasAbierta);
+    const partes = [
+      `💰 *${titulo}: ${abiertas.length}* · ${quienes}
+_Sin trato abierto ni movimiento en el CRM. Cada una sigue apareciendo acá hasta que se cierre en Zoho._`,
+    ];
+    // Slack corta un bloque en 3.000 caracteres: de a 12 lineas por bloque.
+    for (let i = 0; i < abiertas.length && i < 60; i += 12) {
+      partes.push(abiertas.slice(i, i + 12).map(linea).join('\n'));
+    }
+    if (abiertas.length > 60) partes.push(`_…y ${abiertas.length - 60} más._`);
+    if (g.cerradas.length) {
+      partes.push(
+        '*Se movieron y salen de la lista:*\n' +
+          g.cerradas.slice(0, 20).map((v) => `✅ *${v.quien}*: ${v.motivoCierre}`).join('\n')
+      );
+    }
+    const cuerpo = {
+      text: `💰 ${titulo}: ${abiertas.length}`,
+      blocks: partes.map((t) => ({ type: 'section', text: { type: 'mrkdwn', text: t.slice(0, 2900) } })),
+    };
+    salidas.push({ equipo: k, enviado: await postearEquipo(k, cuerpo), cuerpo });
   }
-
-  partes.push(
-    '_No hay trato abierto ni movimiento en el CRM. Va a seguir apareciendo hasta que se cierre._' +
-      (link ? ` <${link}|Abrir en Zoho>` : '')
-  );
-
-  const cuerpo = {
-    text: `💰 Venta sin cerrar hace ${v.diasAbierta} días: ${v.quien}`,
-    blocks: partes.map((t) => ({ type: 'section', text: { type: 'mrkdwn', text: t } })),
-  };
-
-  const url = webhookDe(RUTEO[v.tema]?.[0] || 'ventas');
-  if (!url) return { enviado: false, cuerpo };
-  await postear(url, cuerpo);
-  return { enviado: true, cuerpo };
-}
-
-/** Cuando el CRM muestra que la venta se movió, se avisa y se deja de insistir. */
-export async function avisarVentaCerrada(v) {
-  const url = webhookDe(RUTEO[v.tema]?.[0] || 'ventas');
-  const texto = `✅ *${v.quien}* — dejo de insistir: ${v.motivoCierre}.`;
-  if (!url) return { enviado: false, texto };
-  await postear(url, { text: texto, blocks: [{ type: 'section', text: { type: 'mrkdwn', text: texto } }] });
-  return { enviado: true, texto };
+  return salidas;
 }
 
 /** Aviso único cuando la corrida topeó el máximo de alertas. */
 export async function enviarResumenTope(cuantas, tope) {
   const texto = `⚠️ Hay ${cuantas} conversaciones pendientes en esta pasada y el tope por corrida es ${tope}. Se avisaron las ${tope} más urgentes. Conviene revisar la bandeja de WhatsApp en Zoho a mano.`;
   if (!HAY_SLACK) return { enviado: false, texto };
-  const urls = [...new Set(['ventas', 'cx', 'admin'].map(webhookDe).filter(Boolean))];
-  for (const u of urls) await postear(u, { text: texto });
+  for (const k of ['ventas', 'cx']) await postearEquipo(k, { text: texto });
   return { enviado: true, texto };
 }

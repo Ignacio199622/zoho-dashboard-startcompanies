@@ -2,7 +2,7 @@
 import { conversacionesDesde, fichas } from './zoho.js';
 import { pendientes, decidir } from './reglas.js';
 import { clasificar } from './clasificar.js';
-import { enviar, enviarResumenTope, avisarVentaAbierta, avisarVentaCerrada } from './slack.js';
+import { enviar, enviarResumenTope, avisarResumenVentas } from './slack.js';
 import * as estadoFs from './estado.js';
 import * as aprendizaje from './aprendizaje.js';
 import { votar, esperarVeredicto, podarVeredictos } from './confirmacion.js';
@@ -14,6 +14,9 @@ import {
   MAX_ALERTAS_POR_CORRIDA,
   PRECIO,
   HAY_SLACK,
+  HORA_RESUMEN_VENTAS,
+  TZ_EQUIPO,
+  horaEnArgentina,
 } from './config.js';
 
 // `avisar`    manda a Slack de verdad.
@@ -156,14 +159,21 @@ export async function unaPasada({
   const clasePorId = Object.fromEntries(nuevas.filter((c) => c.clase).map((c) => [c.id, c.clase]));
   const conClase = conversaciones.map((c) => (clasePorId[c.id] ? { ...c, clase: clasePorId[c.id] } : c));
 
-  const { cerradas, aInsistir } = await seguimiento.revisar(estado, conClase, ahora);
+  // Las ventas abiertas se revisan UNA vez por dia (primera pasada desde las
+  // HORA_RESUMEN_VENTAS) y salen todas juntas en un solo mensaje. Las otras
+  // pasadas no las tocan: asi no se cuentan insistencias que nadie vio.
+  const hoyAR = new Intl.DateTimeFormat('en-CA', { timeZone: TZ_EQUIPO }).format(ahora);
+  const tocaResumen = horaEnArgentina(ahora) >= HORA_RESUMEN_VENTAS && estado.resumenVentasDia !== hoyAR;
+  const { cerradas, aInsistir } = tocaResumen
+    ? await seguimiento.revisar(estado, conClase, ahora)
+    : { cerradas: [], aInsistir: [] };
+  if (tocaResumen) estado.resumenVentasDia = hoyAR;
 
   // Una alerta por caso: cada una se puede tomar, comentar y resolver aparte.
   // El panorama de cada 2 horas es otra cosa y va en `src/panorama.js`.
   if (avisar) {
     for (const a of aEnviar) await enviar(a);
-    for (const v of cerradas) await avisarVentaCerrada(v);
-    for (const v of aInsistir) await avisarVentaAbierta(v);
+    if (tocaResumen) await avisarResumenVentas(aInsistir, cerradas);
     if (topeado) await enviarResumenTope(alertas.length, MAX_ALERTAS_POR_CORRIDA);
   }
 
