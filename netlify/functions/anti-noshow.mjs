@@ -85,25 +85,39 @@ export default async () => {
       (a) => ALERTAS_QUE_AVISAN.has(a.tipo) && !avisadas.has(`${a.tipo}:${a.idEvento}`)
     );
 
-    let enviado = false;
-    if (nuevas.length) {
-      const porTipo = new Map();
-      for (const a of nuevas) porTipo.set(a.tipo, [...(porTipo.get(a.tipo) || []), a]);
+    // 8-nov-2026, Ignacio: menos ruido. Antes salia un mensaje por corrida
+    // (cada hora, 35 en dos semanas). Ahora lo nuevo se junta en una cola y
+    // sale UNA vez por dia, en la corrida de las 9:45 de Argentina.
+    const cola = (await store.get('cola', { type: 'json' })) || [];
+    const enCola = new Set(cola.map((a) => `${a.tipo}:${a.idEvento}`));
+    for (const a of nuevas) {
+      const k = `${a.tipo}:${a.idEvento}`;
+      if (!enCola.has(k)) cola.push({ tipo: a.tipo, idEvento: a.idEvento, nombre: a.nombre, inicio: a.inicio, detalle: a.detalle });
+      avisadas.add(k);
+    }
+    if (nuevas.length) await store.setJSON('avisadas', [...avisadas].slice(-2000));
 
-      const partes = ['*Anti no-show* · revisión de reuniones (el agente no le escribió a nadie)'];
+    const horaAR = Number(new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', hour12: false }).format(ahora));
+    const tocaResumen = horaAR === Number(process.env.ANTI_NOSHOW_HORA || 9);
+    let enviado = false;
+    if (tocaResumen && cola.length) {
+      const porTipo = new Map();
+      for (const a of cola) porTipo.set(a.tipo, [...(porTipo.get(a.tipo) || []), a]);
+
+      const partes = ['*Anti no-show* · resumen del día (el agente no le escribió a nadie)'];
       for (const [tipo, lista] of porTipo) {
         partes.push(`\n*${TITULO[tipo] || tipo}* · ${lista.length}`);
         for (const a of lista.slice(0, MAX_POR_MENSAJE)) {
           partes.push(`• ${a.nombre || 'sin nombre'} · ${fecha(a.inicio)} · <${ZOHO_UI}/Events/${a.idEvento}|ver reunión>`);
-          if (tipo === 'colision_retargeting') partes.push(`   ${a.detalle}`);
+          if (tipo === 'colision_retargeting' && a.detalle) partes.push(`   ${a.detalle}`);
         }
         if (lista.length > MAX_POR_MENSAJE) partes.push(`   …y ${lista.length - MAX_POR_MENSAJE} más`);
       }
       enviado = await aSlack(partes.join('\n'));
-      // Se marcan aunque Slack falle: si no, al fallar una vez se repite el
-      // mismo aviso cada hora para siempre.
-      for (const a of nuevas) avisadas.add(`${a.tipo}:${a.idEvento}`);
-      await store.setJSON('avisadas', [...avisadas].slice(-2000));
+      // Se vacia aunque Slack falle: si no, el mismo resumen se repetiria.
+      await store.setJSON('cola', []);
+    } else if (nuevas.length) {
+      await store.setJSON('cola', cola.slice(-300));
     }
 
     const reg = {

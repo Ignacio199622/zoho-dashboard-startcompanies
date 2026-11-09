@@ -45,10 +45,14 @@ export default async (req) => {
   const url = new URL(req.url);
   let modo = url.searchParams.get('modo');
   let seco = url.searchParams.get('seco') === '1';
+  // Silencioso: hace todo (fija la foto) pero no publica. Distinto de `seco`,
+  // que tampoco guarda la foto.
+  let silencioso = url.searchParams.get('silencioso') === '1';
   try {
     const cuerpo = await req.json();
     modo = cuerpo.modo || modo;
     seco = cuerpo.seco ?? seco;
+    silencioso = cuerpo.silencioso ?? silencioso;
   } catch {
     /* sin cuerpo: quedan los de la query */
   }
@@ -122,6 +126,8 @@ export default async (req) => {
       detalle = 'sin novedades, no se manda nada';
     } else if (seco) {
       detalle = 'seco: no se envio';
+    } else if (silencioso) {
+      detalle = 'silencioso: foto fijada, no se publica';
     } else if (!webhook) {
       // Modo sombra. Calcula todo y no le escribe a nadie, igual que los otros
       // agentes en su Fase 0.

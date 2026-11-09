@@ -23,7 +23,11 @@ export default async (req) => {
     const r = await fetch(destino, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ modo: MODO }),
+      // 8-nov-2026, Ignacio: menos ruido. El cierre de las 16:30 sigue
+      // corriendo (fija la foto del dia para comparar mañana) pero ya no
+      // publica: en el canal queda solo el arranque de las 9:00.
+      // CONTROL_CRM_CIERRE=1 lo vuelve a publicar.
+      body: JSON.stringify({ modo: MODO, silencioso: process.env.CONTROL_CRM_CIERRE !== '1' }),
     });
     const ok = r.status === 202; // 202 = background aceptada
     if (!ok) console.error(`el worker contesto ${r.status}, se esperaba 202`);
