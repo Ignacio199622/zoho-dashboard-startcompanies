@@ -53,16 +53,36 @@ export function periodoDesde(desde, ahora = new Date()) {
  * Reparte por persona y le da a cada una una tanda corta, lo más viejo primero,
  * que es lo que más tiempo lleva roto. Mañana salen los que sigan abiertos.
  */
-export function arranque(evaluadas, { porTanda = 4, informe, cadencias } = {}) {
-  const conDeuda = evaluadas.filter((r) => r.total > 0);
+export function arranque(evaluadas, { porTanda = 4, informe, cadencias, vistos, ahora = new Date() } = {}) {
+  // 9-nov-2026: solo lo que aparecio en los ultimos 7 dias. Sin `vistos`
+  // (corrida a mano vieja) se comporta como antes.
+  const DIAS = 7;
+  const reciente = (c) => !vistos || (ahora - new Date(vistos[c.id] || ahora)) / 86400000 <= DIAS;
+  const stockTotal = evaluadas.reduce((n, r) => n + r.total, 0);
+  const recortadas = evaluadas
+    .map((r) => {
+      const casos = r.casos.filter(reciente);
+      return { ...r, casos, total: casos.length };
+    })
+    .filter((r) => r.total > 0);
+  const conDeuda = recortadas;
+  const total = conDeuda.reduce((n, r) => n + r.total, 0);
+  const viejos = stockTotal - total;
+  const pieViejos = vistos && viejos > 0
+    ? `_Además hay ${viejos} pendientes de hace más de una semana: no se repiten acá, están en el informe${informe ? ` → ${informe}` : ''}._`
+    : null;
+
   if (!conDeuda.length) {
+    // Nada nuevo en la semana: no se manda nada (el stock viejo esta en el informe).
+    if (vistos) return null;
     return `*🩺 Control CRM · ${fechaLarga()}*\n\n🎉 No quedó nada pendiente. Primera vez.`;
   }
 
-  const total = conDeuda.reduce((n, r) => n + r.total, 0);
   const l = [
     `*🩺 Control CRM · ${fechaLarga()}*`,
-    `*Lo de hoy.* Quedan ${total} pendientes en total; abajo va lo que le toca a cada uno.`,
+    vistos
+      ? `*Lo de la última semana.* ${plural(total, 'cosa nueva', 'cosas nuevas')} para arreglar; abajo va lo que le toca a cada uno.`
+      : `*Lo de hoy.* Quedan ${total} pendientes en total; abajo va lo que le toca a cada uno.`,
     '',
   ];
 
@@ -90,7 +110,8 @@ export function arranque(evaluadas, { porTanda = 4, informe, cadencias } = {}) {
 
   l.push('_Cada uno abre los suyos y los cierra. Mañana vuelven a salir los que sigan abiertos._');
   if (cadencias) l.push('', ...mapa(cadencias));
-  if (informe) l.push('', `Todo el detalle → ${informe}`);
+  if (pieViejos) l.push('', pieViejos);
+  else if (informe) l.push('', `Todo el detalle → ${informe}`);
   return l.join('\n');
 }
 

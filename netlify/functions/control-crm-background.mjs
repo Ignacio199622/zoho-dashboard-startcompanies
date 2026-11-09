@@ -99,9 +99,24 @@ export default async (req) => {
       console.log('freno: fallo y se sigue igual -', e.message);
     }
 
+    /*
+     * 9-nov-2026, Ignacio: el arranque decia "4.845 pendientes" con cadencias
+     * vencidas hace 518 dias, y con ese numero nadie arranca. Ahora se anota
+     * cuando aparecio cada caso por primera vez y el arranque muestra solo lo
+     * de la ultima semana; el stock viejo queda en el informe.
+     * La primera vez que corre, todo lo que ya existe cuenta como viejo.
+     */
+    const vistosPrevios = await store.get('vistos', { type: 'json' });
+    const marcaInicial = vistosPrevios ? inicio.toISOString() : '2000-01-01T00:00:00.000Z';
+    const vistos = {};
+    for (const r of reglas) for (const c of r.casos || []) {
+      vistos[c.id] = vistosPrevios?.[c.id] || marcaInicial;
+    }
+    if (!seco) await store.setJSON('vistos', vistos);
+
     const texto =
       modo === 'arranque'
-        ? arranque(evaluadas, { informe: INFORME, cadencias: mapaCadencias(datos.leads) })
+        ? arranque(evaluadas, { informe: INFORME, cadencias: mapaCadencias(datos.leads), vistos, ahora: inicio })
         // `desde` es la fecha de la foto anterior, y sirve para que el texto
         // diga "desde el viernes" en vez de "hoy" cuando el cierre arrastra un
         // fin de semana entero.

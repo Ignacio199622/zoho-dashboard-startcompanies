@@ -184,16 +184,23 @@ export async function avisarResumenVentas(aInsistir = [], cerradas = []) {
       return `• ${nombre} · ${v.diasAbierta} días · ${String(v.resumen || '').slice(0, 120)}${ultimo}`;
     };
     const titulo = k === 'admin' ? 'Renovaciones sin cerrar hoy' : 'Ventas sin cerrar hoy';
-    const abiertas = [...g.abiertas].sort((a, b) => b.diasAbierta - a.diasAbierta);
+    // 9-nov-2026, Ignacio: la lista traia 40 nombres y nadie la leia entera.
+    // Van las 10 mas frescas (las que todavia se pueden cerrar) y el resto
+    // como un numero.
+    const MAX_LISTA = 10;
+    const abiertas = [...g.abiertas].sort((a, b) => a.diasAbierta - b.diasAbierta);
+    const resto = abiertas.slice(MAX_LISTA);
     const partes = [
       `💰 *${titulo}: ${abiertas.length}* · ${quienes}
-_Sin trato abierto ni movimiento en el CRM. Cada una sigue apareciendo acá hasta que se cierre en Zoho._`,
+_Las ${Math.min(MAX_LISTA, abiertas.length)} más recientes, que son las que todavía se pueden cerrar. Cada una sigue apareciendo hasta que se mueva en Zoho._`,
     ];
-    // Slack corta un bloque en 3.000 caracteres: de a 12 lineas por bloque.
-    for (let i = 0; i < abiertas.length && i < 60; i += 12) {
-      partes.push(abiertas.slice(i, i + 12).map(linea).join('\n'));
+    // Slack corta un bloque en 3.000 caracteres: de a 5 lineas por bloque.
+    for (let i = 0; i < Math.min(MAX_LISTA, abiertas.length); i += 5) {
+      partes.push(abiertas.slice(i, Math.min(i + 5, MAX_LISTA)).map(linea).join('\n'));
     }
-    if (abiertas.length > 60) partes.push(`_…y ${abiertas.length - 60} más._`);
+    if (resto.length) {
+      partes.push(`_…y ${resto.length} más, de ${resto[0].diasAbierta} a ${resto[resto.length - 1].diasAbierta} días sin cerrar. Están en Zoho._`);
+    }
     if (g.cerradas.length) {
       partes.push(
         '*Se movieron y salen de la lista:*\n' +

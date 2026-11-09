@@ -14,6 +14,7 @@
  * Porque nadie mira los logs de Netlify hasta que ya hay un problema. El aviso
  * tiene que ir a donde el equipo ya esta.
  */
+import { getStore } from '@netlify/blobs';
 import { env } from './entorno.js';
 
 export const CANALES = [env.SLACK_CANAL_FALLAS || '#control-crm', env.SLACK_CANAL].filter(Boolean);
@@ -47,6 +48,19 @@ export async function avisarFalla(agente, error, pista) {
   const mensaje = String(error?.message || error || 'sin detalle');
   console.error(`${agente}: la corrida fallo`, error);
   if (!HAY_SLACK) return { avisado: false, motivo: 'sin SLACK_BOT_TOKEN' };
+
+  // 9-nov-2026: "Ruteo en horario se cayo" salio 3 veces seguidas a las 9:08
+  // por el limite de pedidos de Zoho. El mismo agente con el mismo error avisa
+  // una sola vez por hora. Si Blobs falla, se avisa igual.
+  try {
+    const store = getStore({ name: 'avisos-falla', consistency: 'strong' });
+    const huella = `${agente}:${mensaje.replace(/\d+/g, '#').slice(0, 120)}`.replace(/[^\w:#-]+/g, '_').slice(0, 200);
+    const ultimo = await store.get(huella);
+    if (ultimo && Date.now() - Number(ultimo) < 3600000) {
+      return { avisado: false, motivo: 'mismo error avisado hace menos de una hora' };
+    }
+    await store.set(huella, String(Date.now()));
+  } catch { /* sin memoria se avisa siempre */ }
 
   const partes = [
     `🚨 *${agente} se cayo*`,
