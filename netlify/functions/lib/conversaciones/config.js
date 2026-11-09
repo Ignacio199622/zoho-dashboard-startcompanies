@@ -109,7 +109,8 @@ export const ES_PRUEBA = (nombre = '', mail = '') =>
 export const EQUIPOS = {
   // 7-nov-2026: Ignacio reordeno Slack por equipo. Ventas = Santi, Camila y
   // Daniel; soporte = Ignacio Campo y Sofia; renovaciones = Ignacio Campo y Pablo.
-  ventas: { nombre: 'Ventas', personas: ['Santiago', 'Camila', 'Daniel'] },
+  // 9-nov: Thais (ventas Brasil) en copia del resumen, para control.
+  ventas: { nombre: 'Ventas', personas: ['Santiago', 'Camila', 'Daniel', 'Thais'] },
   cx: { nombre: 'Soporte', personas: ['Ignacio Campo', 'Sofía', 'Pablo'] },
   admin: { nombre: 'Renovaciones', personas: ['Ignacio Campo', 'Pablo'] },
   referidos: { nombre: 'Referidos', personas: ['Ignacio Campo', 'Santiago'] },
@@ -142,6 +143,7 @@ export const MENCIONES = {
   'Sofía': env.SLACK_ID_SOFIA || 'U0C696BHWRY',
   'Ignacio Campo': env.SLACK_ID_IGNACIO_CAMPO || 'U08LT8252Q3',
   Pablo: env.SLACK_ID_PABLO || 'U0BTT434078',
+  Thais: env.SLACK_ID_THAIS || 'U0CAMCXF01K',
 };
 
 export const nombrar = (persona) =>
