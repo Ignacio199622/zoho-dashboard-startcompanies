@@ -546,7 +546,9 @@ export async function enHilo(numero, texto) {
   if (!guardado.ts) {
     // Hilo en espera (el lead no contestó): la nota se guarda para cuando
     // aparezca. Una falla (⚠️) sí abre el hilo ya: eso lo tiene que ver alguien.
-    if (!/^⚠️/.test(String(texto))) {
+    // "Meta no entregó" (131049, marketing frenado) tampoco abre: el
+    // seguimiento se cierra solo y no hay nada que hacer (9-nov: abrió 3 hilos).
+    if (!/^⚠️/.test(String(texto)) || /Meta no entreg/.test(String(texto))) {
       const pendientes = [...(guardado.pendientes || []), { quien: null, texto: String(texto), cuando: new Date().toISOString() }].slice(-15);
       await almacen().setJSON(clave(numero), { ...guardado, pendientes });
       return true;

@@ -172,9 +172,24 @@ export function armar(nuevos, repetidos) {
     return `• ${quien}${tel} · ${c.razones.join(' · ')}${dijo}${zoho}`;
   };
   const cabecera = `🙋 <@${SANTIAGO}> *Matías: ${nuevos.length} conversaci${nuevos.length === 1 ? 'ón' : 'ones'} que necesita${nuevos.length === 1 ? '' : 'n'} una persona*`;
-  const bloques = [{ type: 'section', text: { type: 'mrkdwn', text: `${cabecera}\n${nuevos.slice(0, TOPE).map(linea).join('\n')}` } }];
+  // Slack rechaza el mensaje entero (invalid_blocks) si un bloque pasa los
+  // 3.000 caracteres. Paso el 9-nov-2026 tras 63 h sin correr: se juntaron
+  // muchos casos y no salio el aviso. Se parte en bloques de hasta 2.800.
+  const bloques = [];
+  let actual = cabecera;
+  for (const l of nuevos.slice(0, TOPE).map(linea)) {
+    if ((actual + '\n' + l).length > 2800) {
+      bloques.push({ type: 'section', text: { type: 'mrkdwn', text: actual } });
+      actual = l.slice(0, 2800);
+    } else actual += '\n' + l;
+  }
+  bloques.push({ type: 'section', text: { type: 'mrkdwn', text: actual } });
   if (nuevos.length > TOPE) bloques.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `…y ${nuevos.length - TOPE} más en la lista.` }] });
-  if (repetidos.length) bloques.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `Además siguen sin tocarse, ya avisados: ${repetidos.map((c) => c.nombre || '+' + c.tel).join(', ')}.` }] });
+  if (repetidos.length) {
+    let rep = `Además siguen sin tocarse, ya avisados: ${repetidos.map((c) => c.nombre || '+' + c.tel).join(', ')}.`;
+    if (rep.length > 2800) rep = rep.slice(0, 2780) + '… (y más)';
+    bloques.push({ type: 'context', elements: [{ type: 'mrkdwn', text: rep }] });
+  }
   return { text: `Matías: ${nuevos.length} conversaciones necesitan una persona`, blocks: bloques, unfurl_links: false };
 }
 
