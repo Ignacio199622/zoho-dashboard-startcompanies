@@ -110,7 +110,7 @@ export const EQUIPOS = {
   // 7-nov-2026: Ignacio reordeno Slack por equipo. Ventas = Santi, Camila y
   // Daniel; soporte = Ignacio Campo y Sofia; renovaciones = Ignacio Campo y Pablo.
   ventas: { nombre: 'Ventas', personas: ['Santiago', 'Camila', 'Daniel'] },
-  cx: { nombre: 'Soporte', personas: ['Ignacio Campo', 'Sofía'] },
+  cx: { nombre: 'Soporte', personas: ['Ignacio Campo', 'Sofía', 'Pablo'] },
   admin: { nombre: 'Renovaciones', personas: ['Ignacio Campo', 'Pablo'] },
   referidos: { nombre: 'Referidos', personas: ['Ignacio Campo', 'Santiago'] },
 };
@@ -160,15 +160,16 @@ const WEBHOOK_POR_EQUIPO = {
   referidos: env.SLACK_WEBHOOK_REFERIDOS,
 };
 
-// Canal de cada equipo (7-nov-2026). Va por bot token (chat.postMessage): un
-// webhook entrante queda atado a un solo canal y habria que crear uno por
-// equipo a mano. El bot "Avisos SC - ALERTAS" ya esta invitado a estos canales.
-// Si no hay bot token, cae al webhook de antes.
+// Canal de los resumenes (8-nov-2026). Los canales por equipo del 7-nov se
+// archivaron a pedido de Ignacio; los resumenes van a #control-crm, donde ya
+// sale lo que le toca a cada uno, mencionando a la persona. Va por bot token
+// (el bot "Avisos SC - ALERTAS" esta invitado); si falla, cae al webhook.
+const CANAL_RESUMENES = env.SLACK_CANAL_RESUMENES || 'C0BUSC1K8TY'; // #control-crm
 export const CANAL_POR_EQUIPO = {
-  ventas: env.SLACK_CANAL_VENTAS || 'C0CFYBBD0UC', // #ventas
-  cx: env.SLACK_CANAL_SOPORTE || 'C0CGP1RJ4L8', // #soporte
-  admin: env.SLACK_CANAL_RENOVACIONES || 'C0CFWH27YQZ', // #renovaciones-llc
-  referidos: env.SLACK_CANAL_VENTAS || 'C0CFYBBD0UC', // #ventas
+  ventas: env.SLACK_CANAL_VENTAS || CANAL_RESUMENES,
+  cx: env.SLACK_CANAL_SOPORTE || CANAL_RESUMENES,
+  admin: env.SLACK_CANAL_RENOVACIONES || CANAL_RESUMENES,
+  referidos: env.SLACK_CANAL_VENTAS || CANAL_RESUMENES,
 };
 export const SLACK_BOT_TOKEN = env.SLACK_BOT_TOKEN || null;
 
