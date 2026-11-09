@@ -332,6 +332,31 @@ function cabeceraDe({ de, nombre, link, apertura, NUMERO }) {
   return { corto: `🤖 Matías le escribió a ${nombre}`, largo: `🤖 *Matías le escribió a ${nombre}* (${NUMERO}) · ${link}` };
 }
 
+/**
+ * Publica la cabecera de un hilo que estaba en espera y vuelca lo guardado.
+ * Devuelve { ts, canal } y deja el registro como cualquier hilo normal.
+ */
+async function abrirHiloGuardado(numero, guardado, { contesto = null } = {}) {
+  const c = guardado.cabecera || { corto: 'Matías', largo: 'Matías' };
+  const marca = contesto ? ' · *💬 contestó*' : '';
+  const cab = await publicar({
+    text: `${c.corto}${contesto ? ' · 💬 contestó' : ''}`,
+    blocks: [{ type: 'section', text: { type: 'mrkdwn', text: `${c.largo}${marca}\n_La conversación sigue en este hilo._` } }],
+    unfurl_links: false,
+  });
+  const { ts, canal } = cab;
+  for (const p of guardado.pendientes || []) {
+    const base = { channel: canal, thread_ts: ts };
+    const cuerpo = p.quien
+      ? { ...base, text: `${p.quien}: ${p.texto}`, blocks: [{ type: 'section', text: { type: 'mrkdwn', text: `${p.quien}\n> ${String(p.texto).split('\n').join('\n> ')}` } }] }
+      : { ...base, text: p.texto };
+    await slack('chat.postMessage', { ...cuerpo, ...FIRMA }).catch(() => slack('chat.postMessage', { ...base, text: cuerpo.text }).catch(() => {}));
+  }
+  const { pendientes, ...resto } = guardado;
+  await almacen().setJSON(clave(numero), { ...resto, ts, canal, ...(contesto ? { contesto } : {}) });
+  return { ts, canal };
+}
+
 export async function registrar({ numero, de, texto, cuando = new Date(), apertura = null }) {
   const resultado = { slack: null, zoho: null, lead: null };
   const NUMERO = LINEAS[await lineaDe(numero)].numero; // el número por el que habla con ESTE lead
@@ -352,8 +377,25 @@ export async function registrar({ numero, de, texto, cuando = new Date(), apertu
   if (!resultado.slack) {
     try {
       const store = almacen();
-      const guardado = await store.get(clave(numero), { type: 'json' });
+      let guardado = await store.get(clave(numero), { type: 'json' });
+      // 8-nov-2026, Ignacio: "no quiero tanto ruido en los grupos". Un hilo que
+      // abre Matias (form nuevo, barrido, confirmacion) NO se publica hasta que
+      // el lead contesta: la mayoria no contesta y eran ~26 cabeceras por dia en
+      // #sdr-virtual-matias que nadie tenia que mirar. Lo que Matias escribio
+      // queda guardado y se vuelca en el hilo cuando aparece. La nota en Zoho
+      // sale igual que siempre.
+      if (!guardado?.ts && de !== 'lead' && env.MATIAS_HILO_INMEDIATO !== 'true') {
+        const c = guardado?.cabecera || cabeceraDe({ de, nombre, link, apertura, NUMERO });
+        const pendientes = [...(guardado?.pendientes || []), { quien: '🤖 *Matías*', texto: String(texto), cuando: cuando.toISOString() }].slice(-15);
+        await store.setJSON(clave(numero), { ...(guardado || {}), lead: lead?.id || guardado?.lead || null, desde: guardado?.desde || cuando.toISOString(), inicio: guardado?.inicio || de, cabecera: c, pendientes });
+        resultado.slack = 'en espera (sin hilo hasta que conteste)';
+      } else {
       let ts = guardado?.ts, canal = guardado?.canal;
+      if (!ts && guardado?.pendientes?.length) {
+        // Contestó un lead que Matías ya había abierto: aparece el hilo con todo.
+        ({ ts, canal } = await abrirHiloGuardado(numero, guardado, { contesto: de === 'lead' ? cuando.toISOString() : null }));
+        guardado = await store.get(clave(numero), { type: 'json' });
+      }
       if (!ts) {
         const c = cabeceraDe({ de, nombre, link, apertura, NUMERO });
         const cabecera = await publicar({
@@ -382,6 +424,7 @@ export async function registrar({ numero, de, texto, cuando = new Date(), apertu
         await slack('chat.postMessage', { channel: canal, thread_ts: ts, text: `${quien}: ${texto}` });
       });
       resultado.slack = 'ok';
+      }
     } catch (e) {
       resultado.slack = e.message;
     }
@@ -498,8 +541,19 @@ export async function avisarCliente(numero, cliente, lead = null) {
 
 /** Publica en el hilo de Slack del lead, sin tocar Zoho. Para las propuestas en sombra. */
 export async function enHilo(numero, texto) {
-  const guardado = await almacen().get(clave(numero), { type: 'json' });
-  if (!guardado?.ts) return false;
+  let guardado = await almacen().get(clave(numero), { type: 'json' });
+  if (!guardado) return false;
+  if (!guardado.ts) {
+    // Hilo en espera (el lead no contestó): la nota se guarda para cuando
+    // aparezca. Una falla (⚠️) sí abre el hilo ya: eso lo tiene que ver alguien.
+    if (!/^⚠️/.test(String(texto))) {
+      const pendientes = [...(guardado.pendientes || []), { quien: null, texto: String(texto), cuando: new Date().toISOString() }].slice(-15);
+      await almacen().setJSON(clave(numero), { ...guardado, pendientes });
+      return true;
+    }
+    await abrirHiloGuardado(numero, guardado);
+    guardado = await almacen().get(clave(numero), { type: 'json' });
+  }
   const base = { channel: guardado.canal, thread_ts: guardado.ts, text: texto };
   await slack('chat.postMessage', { ...base, ...FIRMA }).catch(() => slack('chat.postMessage', base));
   return true;
