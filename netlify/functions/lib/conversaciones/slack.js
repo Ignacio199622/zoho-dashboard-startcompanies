@@ -216,3 +216,48 @@ export async function enviarResumenTope(cuantas, tope) {
   for (const k of ['ventas', 'cx']) await postearEquipo(k, { text: texto });
   return { enviado: true, texto };
 }
+
+/**
+ * Lo que va a la cola del resumen: una linea por caso, sin el bloque entero.
+ * 8-nov-2026, Ignacio: "no quiero que haya tanto ruido en los grupos". Solo un
+ * cliente en riesgo sale al momento; el resto se junta y sale 2 veces por dia.
+ */
+export function entradaCola(a) {
+  const cat = CATEGORIAS[a.clase?.categoria] || CATEGORIAS.operativo;
+  return {
+    clave: destinos(a)[0]?.clave || 'cx',
+    emoji: cat.emoji,
+    etiqueta: cat.etiqueta,
+    tema: TEMAS[a.clase?.tema] || '',
+    nombre: a.ficha?.Full_Name || a.mobile_number__s || 'Sin nombre',
+    resumen: String(a.clase?.resumen || '').slice(0, 140),
+    horas: a.horasEsperando,
+    ventanaCerrada: Boolean(a.ventanaCerrada),
+    link: linkZoho(a.ficha),
+    prioridad: a.decision?.prioridad || 0,
+  };
+}
+
+/** Un mensaje por equipo con todo lo que se junto desde el resumen anterior. */
+export async function enviarResumenAvisos(cola = {}, hora = '') {
+  const salidas = [];
+  for (const [k, items] of Object.entries(cola)) {
+    const lista = Object.values(items || {}).sort((a, b) => b.prioridad - a.prioridad || b.horas - a.horas);
+    if (!lista.length) continue;
+    const equipo = EQUIPOS[k] || EQUIPOS.cx;
+    const quienes = (equipo.personas || []).map(nombrar).join(' ');
+    const linea = (x) =>
+      `${x.emoji} ${x.link ? `<${x.link}|${x.nombre}>` : `*${x.nombre}*`} · ${x.tema} · ${x.horas}h${x.ventanaCerrada ? ' · ⛔ solo plantilla' : ''} — ${x.resumen}`;
+    const partes = [
+      `📋 *WhatsApp para atender (${hora}): ${lista.length}* · ${quienes}\n_Lo que entró desde el último resumen. Se contesta en Zoho; si ya lo atendieron, no hace falta hacer nada acá._`,
+    ];
+    for (let i = 0; i < lista.length && i < 48; i += 12) partes.push(lista.slice(i, i + 12).map(linea).join('\n'));
+    if (lista.length > 48) partes.push(`_…y ${lista.length - 48} más en la bandeja de Zoho._`);
+    const cuerpo = {
+      text: `📋 WhatsApp para atender: ${lista.length}`,
+      blocks: partes.map((t) => ({ type: 'section', text: { type: 'mrkdwn', text: t.slice(0, 2900) } })),
+    };
+    salidas.push({ equipo: k, enviado: await postearEquipo(k, cuerpo) });
+  }
+  return salidas;
+}

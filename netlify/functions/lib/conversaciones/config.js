@@ -183,4 +183,13 @@ export const HAY_SLACK = Boolean(
 // cada vez que vencia el plazo: 345 por semana.
 export const HORA_RESUMEN_VENTAS = Number(env.HORA_RESUMEN_VENTAS || 9);
 
+// Los demas avisos (soporte, señales comerciales, administrativos) tampoco
+// salen sueltos: se juntan y salen en un mensaje por equipo a estas horas.
+// Solo un cliente en riesgo sale al momento.
+export const HORAS_RESUMEN_AVISOS = (env.HORAS_RESUMEN_AVISOS || '9,15')
+  .split(',')
+  .map((h) => Number(h.trim()))
+  .filter((h) => h >= 0 && h < 24)
+  .sort((a, b) => a - b);
+
 export const ZOHO_UI = 'https://crm.zoho.com/crm/org881745849/tab';

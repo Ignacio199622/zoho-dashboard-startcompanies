@@ -2,7 +2,7 @@
 import { conversacionesDesde, fichas } from './zoho.js';
 import { pendientes, decidir } from './reglas.js';
 import { clasificar } from './clasificar.js';
-import { enviar, enviarResumenTope, avisarResumenVentas } from './slack.js';
+import { enviar, enviarResumenTope, avisarResumenVentas, entradaCola, enviarResumenAvisos } from './slack.js';
 import * as estadoFs from './estado.js';
 import * as aprendizaje from './aprendizaje.js';
 import { votar, esperarVeredicto, podarVeredictos } from './confirmacion.js';
@@ -15,6 +15,7 @@ import {
   PRECIO,
   HAY_SLACK,
   HORA_RESUMEN_VENTAS,
+  HORAS_RESUMEN_AVISOS,
   TZ_EQUIPO,
   horaEnArgentina,
 } from './config.js';
@@ -172,7 +173,26 @@ export async function unaPasada({
   // Una alerta por caso: cada una se puede tomar, comentar y resolver aparte.
   // El panorama de cada 2 horas es otra cosa y va en `src/panorama.js`.
   if (avisar) {
-    for (const a of aEnviar) await enviar(a);
+    // Solo un cliente en riesgo sale al momento. El resto se junta y sale en
+    // un resumen por equipo a las HORAS_RESUMEN_AVISOS (9 y 15): pedido de
+    // Ignacio el 8-nov-2026 para sacar el ruido de los canales.
+    const cola = estado.colaAvisos || (estado.colaAvisos = {});
+    for (const a of aEnviar) {
+      if (a.clase?.categoria === 'riesgo' && a.seguimiento?.accion !== 'recordar') {
+        await enviar(a);
+        continue;
+      }
+      const e = entradaCola(a);
+      (cola[e.clave] ||= {})[a.id] = e;
+    }
+    const hAR = horaEnArgentina(ahora);
+    const franja = [...HORAS_RESUMEN_AVISOS].reverse().find((h) => hAR >= h);
+    const slot = franja === undefined ? null : `${hoyAR}-${franja}`;
+    if (slot && estado.ultimoResumenAvisos !== slot) {
+      await enviarResumenAvisos(cola, `${franja}:00`);
+      estado.colaAvisos = {};
+      estado.ultimoResumenAvisos = slot;
+    }
     if (tocaResumen) await avisarResumenVentas(aInsistir, cerradas);
     if (topeado) await enviarResumenTope(alertas.length, MAX_ALERTAS_POR_CORRIDA);
   }
