@@ -51,11 +51,10 @@ async function aSlack(texto) {
   return r.ok;
 }
 
-const fecha = (iso) => {
-  const d = new Date(iso);
-  const dias = ['dom', 'lun', 'mar', 'mie', 'jue', 'vie', 'sab'];
-  return `${dias[d.getDay()]} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-};
+// En hora de Argentina: Netlify corre en UTC y la reunion de las 13 salia "16:00".
+const fecha = (iso) => new Intl.DateTimeFormat('es-AR', {
+  timeZone: 'America/Argentina/Buenos_Aires', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+}).format(new Date(iso)) + ' AR';
 
 export default async () => {
   const store = getStore({ name: 'anti-noshow', consistency: 'strong' });
@@ -98,13 +97,20 @@ export default async () => {
     if (nuevas.length) await store.setJSON('avisadas', [...avisadas].slice(-2000));
 
     const horaAR = Number(new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', hour12: false }).format(ahora));
-    const tocaResumen = horaAR === Number(process.env.ANTI_NOSHOW_HORA || 9);
+    const horaResumen = Number(process.env.ANTI_NOSHOW_HORA || 9);
+    // 9-nov: una reunion que pasa ANTES del proximo resumen no puede esperar a
+    // mañana (llegaba con la reunion ya hecha). Esas salen en esta corrida.
+    // Y las que ya pasaron se descartan: avisarlas no sirve para nada.
+    const proximoResumen = ahora.getTime() + (((horaResumen - horaAR + 24) % 24) || 24) * H;
+    for (let i = cola.length - 1; i >= 0; i--) if (new Date(cola[i].inicio).getTime() < ahora.getTime()) cola.splice(i, 1);
+    const urgentes = cola.filter((a) => new Date(a.inicio).getTime() < proximoResumen);
+    const tocaResumen = horaAR === horaResumen || urgentes.length > 0;
     let enviado = false;
     if (tocaResumen && cola.length) {
       const porTipo = new Map();
       for (const a of cola) porTipo.set(a.tipo, [...(porTipo.get(a.tipo) || []), a]);
 
-      const partes = ['*Anti no-show* · resumen del día (el agente no le escribió a nadie)'];
+      const partes = [horaAR === horaResumen ? '*Anti no-show* · resumen del día (el agente no le escribió a nadie)' : '*Anti no-show* · reunión de hoy para revisar ya'];
       for (const [tipo, lista] of porTipo) {
         partes.push(`\n*${TITULO[tipo] || tipo}* · ${lista.length}`);
         for (const a of lista.slice(0, MAX_POR_MENSAJE)) {
@@ -116,7 +122,7 @@ export default async () => {
       enviado = await aSlack(partes.join('\n'));
       // Se vacia aunque Slack falle: si no, el mismo resumen se repetiria.
       await store.setJSON('cola', []);
-    } else if (nuevas.length) {
+    } else {
       await store.setJSON('cola', cola.slice(-300));
     }
 
