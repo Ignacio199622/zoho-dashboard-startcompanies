@@ -156,6 +156,33 @@ export function idiomaDelContacto(registro, falta, existentes, contacto = regist
   return { campos: { ...(falta?.campos || {}), Idioma: contacto.Idioma }, etiquetas: falta?.etiquetas || [] };
 }
 
+/*
+ * LA FUENTE DEL VENDEDOR VUELVE AL CLIENTE (9-nov-2026, Ignacio: "los chicos ponen Meta Ads
+ * bien, lo del lead y clientes está mal").
+ * Al reservar por agenda-organica o por la web, convertCal le pone "SEO / Web Orgánica" al
+ * lead aunque haya venido de un anuncio: el calendario dice cómo agendó, no de dónde vino.
+ * El vendedor pregunta y carga la fuente real en el trato al aprobar en el panel, pero eso
+ * nunca volvía al contacto. Medido 9-nov: 33 contactos contradecían a su trato.
+ * Candados: solo pisa una fuente que dice "no sabemos" (genérica o SEO combinado), nunca
+ * una con campaña cargada, y nunca desde un trato de socio o de gestoría. Los leads
+ * convertidos no se tocan: Zoho no deja editarlos.
+ */
+const NO_SABEMOS = new Set(['SEO / Web Orgánica', 'No lo sé, completo después', 'A clasificar']);
+const generica = (v) => debilTraspaso(v) || NO_SABEMOS.has(String(v || '').trim());
+const debilTraspaso = (v) => v === null || v === undefined || String(v).trim() === ''
+  || /^WHATSAPP|^WhatsApp - |wwebjs|^Chatbot|Bot$|^TimelinesAI|^Landing Page$|^Web Organic$/.test(String(v))
+  || ['Sin dato histórico', 'WhatsApp (no sabemos)', 'Sin origen de fuente'].includes(String(v).trim());
+const NO_BAJA = new Set(['Partner', 'Cliente actual']);
+
+/** La fuente que el vendedor cargó en el trato, si el contacto dice "no sabemos". Si no, null. */
+export function fuenteDelVendedor(contacto, tratosDelContacto) {
+  if (!contacto || !generica(contacto.Lead_Source) || contacto.utm_campaign || contacto.utm_source) return null;
+  const firmes = (tratosDelContacto || [])
+    .filter((d) => !d.Partner && !generica(d.Lead_Source) && !NO_BAJA.has(d.Lead_Source))
+    .sort((a, b) => (a.Created_Time < b.Created_Time ? -1 : 1));
+  return firmes[0]?.Lead_Source || null;
+}
+
 export async function pasadaOrigen({ aplicar = true } = {}) {
   const desde = Date.now();
   const esquema = { Leads: await camposDe('Leads'), Contacts: await camposDe('Contacts'), Deals: await camposDe('Deals') };
@@ -178,6 +205,7 @@ export async function pasadaOrigen({ aplicar = true } = {}) {
   const contactos = await todos('Contacts', `id,Full_Name,Mobile,Phone,Email,Tag,Account_Name,${campoDe.Contacts.join(',')}`);
   const tratos = await todos('Deals', `id,Deal_Name,Type,Created_Time,Contact_Name,Account_Name,Tag,Partner,${campoDe.Deals.join(',')}`);
 
+  const resumenVendedor = [];
   // "Cliente desde" = su trato más viejo, y cuántos tratos tiene cada contacto
   // (con más de 3 es una gestoría: su origen no es el de la venta).
   const clienteDesde = new Map(), cuantos = new Map();
@@ -189,6 +217,9 @@ export async function pasadaOrigen({ aplicar = true } = {}) {
     if (!previo || d.Created_Time < previo) clienteDesde.set(id, d.Created_Time);
   }
 
+  const tratosDe = new Map();
+  for (const d of tratos) { const id = d.Contact_Name?.id; if (!id) continue; if (!tratosDe.has(id)) tratosDe.set(id, []); tratosDe.get(id).push(d); }
+
   const pendientes = { Contacts: [], Deals: [] };
   const quedara = new Map(); // el contacto ya completado, para que el trato herede eso
   for (const c of contactos) {
@@ -196,6 +227,12 @@ export async function pasadaOrigen({ aplicar = true } = {}) {
     const nacio = clienteDesde.get(c.id) || null;
     const lead = suyos.filter((l) => !nacio || new Date(l.Created_Time) <= new Date(nacio)).sort((a, b) => (a.Created_Time < b.Created_Time ? -1 : 1))[0] || null;
     let falta = loQueFalta(c, lead, { leads: suyos, nacio, permitidos: campoDe.Contacts });
+    // La fuente del vendedor le gana a la genérica (gestorías afuera: su origen no es el de la venta).
+    const delVendedor = (cuantos.get(c.id) || 0) <= TRATOS_PARA_SER_GESTORIA ? fuenteDelVendedor({ ...c, ...(falta?.campos || {}) }, tratosDe.get(c.id)) : null;
+    if (delVendedor) {
+      falta = { campos: { ...(falta?.campos || {}), Lead_Source: delVendedor }, etiquetas: falta?.etiquetas || [] };
+      resumenVendedor.push(`${c.Full_Name}: ${c.Lead_Source || 'vacío'} → ${delVendedor} (fuente del trato)`);
+    }
     if (falta) pendientes.Contacts.push({ modulo: 'Contacts', id: c.id, quien: c.Full_Name, desde: `lead ${lead?.Full_Name}`, ...falta });
     quedara.set(c.id, { ...c, ...(falta?.campos || {}), Tag: [...tags(c), ...(falta?.etiquetas || [])].map((name) => ({ name })) });
   }
@@ -223,6 +260,8 @@ export async function pasadaOrigen({ aplicar = true } = {}) {
   }
 
   const resumen = { leidos: { leads: leads.length, contactos: contactos.length, tratos: tratos.length }, salteadosPorGestoria: salteados, gestoriaSinSocioCargado: sinSocioCargado.length, contactos: pendientes.Contacts.length, tratos: pendientes.Deals.length, campos: 0, etiquetas: 0, fallos: [], detalle: [], aplicar };
+  resumen.fuenteDelVendedor = resumenVendedor.length;
+  resumen.detalle.push(...resumenVendedor);
   if (!aplicar) { resumen.plan = pendientes; return resumen; }
 
   for (const modulo of ['Contacts', 'Deals']) {
