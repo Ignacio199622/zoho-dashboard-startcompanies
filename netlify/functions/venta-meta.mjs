@@ -86,8 +86,11 @@ const VENDIDAS = new Set([
   'Apertura Cuenta Bancaria',
   'Cuenta Bancaria Confirmada', 'Negotiation/Review',
   'Apertura Activa', 'Closed Won',
+  // 9-nov: fase nueva del panel, nace ahi (BBX, Mentoria Digital Group)
+  'Apertura Confirmada',
   // Renovaciones
   'Renovación completa', 'Renovacion completa',
+  'Renovación Confirmada', 'Renovacion Confirmada',
   // Cuentas bancarias (diseño propio: la fase lleva punto)
   'Cuenta Bancaria Confirmada.',
   'Cuenta Bancaria Finalizada', 'Relay Finalizado',
@@ -160,7 +163,7 @@ export async function datosDelContacto(id, token) {
   // Desde el 22-sep el agente de origen deja en la ficha del cliente lo que
   // antes moria al convertir: _fbp, la ip y el userAgent con los que entro. Son
   // tres parametros mas de matching para Meta, y estaban tirados.
-  const j = await zoho(`Contacts/${id}?fields=Email,Mobile,Phone,First_Name,Last_Name,Lead_Source,fbp,fbc,ip,userAgent`, token);
+  const j = await zoho(`Contacts/${id}?fields=Email,Mobile,Phone,First_Name,Last_Name,Lead_Source,fbp,fbc,ip,userAgent,Idioma`, token);
   return (j.data || [])[0] || {};
 }
 
@@ -180,6 +183,30 @@ export function tamanoDeLote(tratos) {
 const identidadDura = (d) => t(d.leadchain0__Social_Lead_ID) || t(d.fbc) || t(d.fbclid);
 
 /**
+ * Candado 0: pruebas del equipo. El 30-oct Pablo cargo dos tratos de prueba
+ * ("llc prueba multi", "pablo empresa", contacto "Pabs Test",
+ * pablostartprueba+12333@gmail.com) con Fuente "Meta Ads" y salieron como
+ * Purchase de 599 cada uno. Todo lo de Pablo se frena: por mail, por celular,
+ * por usuario de Zoho y por las palabras de prueba en el nombre.
+ */
+const MAILS_PRUEBA = /pablostartprueba|(^|[._+-])(prueba|test)[^@]*@/i;
+const TELS_PRUEBA = ['3813121230'];
+const NOMBRE_PRUEBA = /\b(prueba|pruebas|test|testing|pabs)\b|pablo empresa/i;
+const USUARIO_PRUEBA = /pablo/i;
+
+export function esPrueba(trato, contacto = {}) {
+  const mail = String(contacto.Email || '');
+  if (MAILS_PRUEBA.test(mail)) return `mail de prueba (${mail})`;
+  const tels = [contacto.Mobile, contacto.Phone].map((x) => String(x || '').replace(/\D/g, ''));
+  if (tels.some((x) => x && TELS_PRUEBA.some((p) => x.endsWith(p)))) return 'celular de Pablo';
+  const nombres = [trato.Deal_Name, trato.Contact_Name?.name, contacto.First_Name, contacto.Last_Name].filter(t).join(' ');
+  if (NOMBRE_PRUEBA.test(nombres)) return `nombre de prueba (${nombres})`;
+  const usuario = trato.Created_By?.name || '';
+  if (USUARIO_PRUEBA.test(usuario)) return `cargado por ${usuario}`;
+  return null;
+}
+
+/**
  * Decide que hacer con un trato. Devuelve
  *   { accion: 'enviar', evento }
  *   { accion: 'descartar', motivo }        en firme: no se vuelve a mirar
@@ -189,6 +216,10 @@ const identidadDura = (d) => t(d.leadchain0__Social_Lead_ID) || t(d.fbc) || t(d.
 export function evaluar(trato, contacto, { ahora = new Date(), enLote = 0 } = {}) {
   const creado = new Date(trato.Created_Time);
   const edadDias = (ahora - creado) / 86400e3;
+
+  // 0. Pruebas del equipo (Pablo): nunca se mandan.
+  const prueba = esPrueba(trato, contacto || {});
+  if (prueba) return { accion: 'descartar', motivo: `prueba: ${prueba}` };
 
   // 4. Lote: sin Tipo, o demasiados en la misma hora.
   if (!t(trato.Type)) return { accion: 'descartar', motivo: 'sin tipo (carga en lote)' };
@@ -244,7 +275,11 @@ function armarEvento(trato, contacto, ahora) {
     event_id: `trato-${trato.id}`,          // idempotencia y deduplicacion
     action_source: 'system_generated',
     user_data,
-    custom_data: { currency: 'USD', value: Number(trato.Amount) || 0 },
+    // market=BR igual que la web de Brasil, para separar las ventas BR en Meta.
+    custom_data: {
+      currency: 'USD', value: Number(trato.Amount) || 0,
+      ...(/portugu/i.test(String(contacto.Idioma || '')) ? { market: 'BR' } : {}),
+    },
   };
 }
 
