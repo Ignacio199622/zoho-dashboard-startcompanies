@@ -549,3 +549,78 @@ export const PEDIDO_DE_DETALLE =
 export function vueltaConPedido(frase) {
   return `${frase}. ${PEDIDO_DE_DETALLE}`;
 }
+
+// ─── En portugues y en ingles (10-nov-2026) ────────────────────────────────
+//
+// La guardia contestaba solo en espanol, tambien a los brasileros. Esto arma
+// las dos variables de la plantilla ({{2}} por que no hay nadie, {{3}} cuando
+// volvemos) en el idioma de la ficha. Lo usa guardia-tarea solo con
+// GUARDIA_IDIOMAS=1, que se prende cuando las plantillas PT/EN esten aprobadas
+// y las reglas de Zoho elijan plantilla por Idioma (si no, saldria portugues
+// adentro de la plantilla en espanol). El horario sigue siendo el de Argentina.
+const IDIOMAS = {
+  'Português': {
+    dias: ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'],
+    meses: ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'],
+    feriado: (d) => `hoje, ${d}, é feriado nos Estados Unidos e não é dia útil`,
+    finde: (d) => `hoje é ${d} e não é dia útil`,
+    cedo: 'ainda não começamos o dia',
+    tarde: 'já encerramos o expediente',
+    hoje: 'hoje às 9h (horário de Brasília)',
+    amanha: 'amanhã às 9h (horário de Brasília)',
+    data: (dia, n, mes) => `na ${dia}, ${n} de ${mes}, às 9h (horário de Brasília)`,
+    porque: (dia) => `porque ${dia} é feriado nos Estados Unidos`,
+    pedido: 'IMPORTANTE: escreva sua dúvida aqui embaixo, mesmo que já tenha enviado',
+  },
+  English: {
+    dias: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+    meses: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+    feriado: (d) => `today, ${d}, is a US federal holiday and not a business day`,
+    finde: (d) => `today is ${d} and not a business day`,
+    cedo: "we haven't started the day yet",
+    tarde: 'our team has already finished for the day',
+    hoje: 'today at 9am (Buenos Aires time)',
+    amanha: 'tomorrow at 9am (Buenos Aires time)',
+    data: (dia, n, mes) => `on ${dia}, ${mes} ${n}, at 9am (Buenos Aires time)`,
+    porque: (dia) => `because ${dia} is a US federal holiday`,
+    pedido: 'IMPORTANT: please write your question below, even if you already sent it',
+  },
+};
+
+/** true si hay textos para ese Idioma de Zoho (Português / English). */
+export function tieneIdioma(idioma) {
+  return Boolean(IDIOMAS[idioma]);
+}
+
+/**
+ * { porQue, vuelta } en el idioma pedido, o null si es espanol / desconocido.
+ * `conPedido` agrega el "escribi tu consulta" (lo que hace vueltaConPedido en CX).
+ * 9 h de Argentina = 9 h de Brasilia todo el año; en ingles se dice la hora de Buenos Aires (ET cambia con el horario de verano).
+ */
+export function avisoEnIdioma(idioma, fecha = new Date(), { conPedido = false } = {}) {
+  const L = IDIOMAS[idioma];
+  if (!L) return null;
+  const { iso, hora, dow } = enArgentina(fecha);
+
+  let porQue;
+  if (esFeriado(fecha)) porQue = L.feriado(L.dias[dow]);
+  else if (esFinDeSemana(fecha)) porQue = L.finde(L.dias[dow]);
+  else if (hora < ABRE) porQue = L.cedo;
+  else porQue = L.tarde;
+
+  let vuelta;
+  if (!cerradoISO(iso) && hora < ABRE) {
+    vuelta = L.hoje;
+  } else {
+    const saltados = [];
+    let sig = sumarDias(iso, 1);
+    for (let i = 0; i < 20 && cerradoISO(sig); i++) { saltados.push(sig); sig = sumarDias(sig, 1); }
+    const esManana = sig === sumarDias(iso, 1);
+    const d = new Date(`${sig}T12:00:00Z`);
+    vuelta = esManana ? L.amanha : L.data(L.dias[d.getUTCDay()], d.getUTCDate(), L.meses[d.getUTCMonth()]);
+    const fer = esManana ? null : saltados.find((x) => FERIADOS.has(x) && !esFinDeSemanaISO(x));
+    if (fer) vuelta += `, ${L.porque(L.dias[new Date(`${fer}T12:00:00Z`).getUTCDay()])}`;
+  }
+  if (conPedido) vuelta = `${vuelta}. ${L.pedido}`;
+  return { porQue, vuelta };
+}

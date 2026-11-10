@@ -8,6 +8,7 @@ import { leerRespuesta } from './confirmar-reunion.js';
 import { pendientes } from './reglas.js';
 import {
   paraAvisar, estaAbierto, motivo, motivoParaElCliente, proximaApertura, aQuienLeToca,
+  tieneIdioma, avisoEnIdioma,
   textoPara, inicioDelCierre, esCierreDeConversacion, esRechazo, atendidasEnCierre, sigueAtendida, vueltaConPedido, VENTAS, CX, ROBOT, TOPE_POR_CORRIDA,
 } from './guardia.js';
 import {
@@ -149,8 +150,16 @@ export async function correrGuardia({
   const desdeCierre = inicioDelCierre(ahora);
   const salida0 = { saltados: 0, sinFicha: 0, rechazos: 0 };
   const aMandar = [];
+  // El tope cuenta solo a los NUEVOS (sin tarea en este cierre). Bug del
+  // 10-nov-2026: un cliente con tarea pero sin aviso (cerro la conversacion o
+  // lo atendia el equipo) vuelve a entrar en cada corrida, y como son los que
+  // mas esperaron van primero: tres de esos llenaban el tope de 3 para siempre
+  // y los que escribieron despues (Eduardo Zamora 18:55, Gaston Petruccelli,
+  // Marcos de Lima, Jessica Castano) se quedaron sin tarea ni aviso toda la
+  // noche, sin nada en Slack porque la corrida no hacia nada nuevo.
+  let nuevos = 0;
   for (const a of avisos) {
-    if (aMandar.length >= tope) break;
+    if (nuevos >= tope || aMandar.length >= TOPE_POR_CORRIDA) break;
     // "No me interesa" no se contesta: ni aviso, ni tarea, ni secuencia. Va
     // antes de buscar la ficha para no gastar una llamada en alguien que no
     // se va a tocar.
@@ -202,6 +211,7 @@ export async function correrGuardia({
       continue;
     }
     aMandar.push({ ...a, donde, tieneTarea });
+    if (!tieneTarea) nuevos++;
   }
 
   decir(`${conversaciones.length} chats con movimiento, ${esperando.length} esperando, ${avisos.length} con aviso.`);
@@ -339,7 +349,18 @@ export async function correrGuardia({
       if (!decision.aviso && decision.codigo !== 'sin_campos') decir(`- ${quien}: ${decision.motivo}.`);
 
       if (decision.aviso) {
-        const r = await marcarAvisoFueraDeHorario(donde.modulo, donde.registro.id, porQue, vueltaFinal);
+        // En el idioma de la ficha (10-nov-2026). Apagado hasta que existan las plantillas
+        // PT/EN y las reglas de Zoho elijan plantilla por Idioma: GUARDIA_IDIOMAS=1.
+        const idiomaFicha = donde.registro.Idioma;
+        const traducido = process.env.GUARDIA_IDIOMAS === '1' && tieneIdioma(idiomaFicha)
+          ? avisoEnIdioma(idiomaFicha, ahora, { conPedido: donde.equipo === 'CX' })
+          : null;
+        if (traducido) caso.idioma = idiomaFicha;
+        const r = await marcarAvisoFueraDeHorario(
+          donde.modulo, donde.registro.id,
+          traducido ? traducido.porQue : porQue,
+          traducido ? traducido.vuelta : vueltaFinal,
+        );
         caso.aviso = r.ok;
         if (r.ok) {
           salida.avisos++;
