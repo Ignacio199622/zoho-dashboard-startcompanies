@@ -138,6 +138,16 @@ export default async (req) => {
       else if (x.ejecucion?.ok) lineasReprog.push(`:arrows_counterclockwise: ${quien(x)} pidio reprogramar su reunion ${cuando(x)} ("${dijo}"): la cancele y Zoho le mando el link para elegir otro horario. Si no reserva, a las 24 h se le pregunta y a las 48 h la toma Matias. Si quieren arreglar otro horario con el, *reservenlo en Cal* (no solo por chat): si no, no hay reunion ni link ni recordatorios. Si escribe, aviso aca · <${linkReunion(x.evento.id)}|ver reunion>`);
       else lineasReprog.push(`:rotating_light: ${quien(x)} pidio reprogramar su reunion ${cuando(x)} y no pude cancelarla (${x.ejecucion?.error || `quedo "${x.ejecucion?.quedo}"`}). Ponele "No asiste" en Confirmacion a mano · <${linkReunion(x.evento.id)}|ver reunion>`);
     }
+    // Clientes (Tipo = Clientes): se les manda el link para mover ESA reserva (Calendly o Cal),
+    // en su idioma. No se cancela nada. Ver lib/conversaciones/reprogramar-cliente.js.
+    for (const x of r.resultados) {
+      if (x.decision.accion !== 'reprogramar_cliente') continue;
+      avisados.add(x.clave);
+      const dijo = String(x.conversacion.last_message__s).trim().slice(0, 60);
+      if (seco) lineasReprog.push(`:eyes: *Modo sombra:* le mandaria a ${quien(x)} (cliente) el link para mover su reunion ${cuando(x)} (dijo "${dijo}") · <${linkReunion(x.evento.id)}|ver reunion>`);
+      else if (x.ejecucion?.ok) lineasReprog.push(`:arrows_counterclockwise: ${quien(x)} (cliente) pidio cambiar su reunion ${cuando(x)} ("${dijo}"): le mande por WhatsApp (${x.ejecucion.idioma}) el link para moverla en ${x.ejecucion.origen === 'calendly' ? 'Calendly' : 'Cal'}. Al elegir, la vieja se libera sola. *No le manden /agendar* (es el calendario de ventas) · <${linkReunion(x.evento.id)}|ver reunion>`);
+      else lineasReprog.push(`:rotating_light: ${quien(x)} (cliente) pidio cambiar su reunion ${cuando(x)} ("${dijo}") y no pude mandarle el link (${x.ejecucion?.error || 'sin detalle'}). Mandenle agendaclientes.startcompanies.io y cancelen la vieja · <${linkReunion(x.evento.id)}|ver reunion>`);
+    }
     // El que pidio reprogramar, no la movio y no vino: No asistio solo, y arranca Matias.
     try {
       const sr = await seguirReprogramados({ seguidos: reprogramados, escribir: !seco, ahora });
@@ -158,7 +168,7 @@ export default async (req) => {
     const fallidas = [];
     const revisar = [];
     for (const x of r.resultados) {
-      if (x.decision.accion === 'reprogramar') continue;
+      if (x.decision.accion === 'reprogramar' || x.decision.accion === 'reprogramar_cliente') continue;
       const clave = `${x.evento.id}:${x.conversacion.message_time__s}`;
       if (x.decision.accion === 'revisar') {
         if (!avisados.has(clave)) revisar.push(x);

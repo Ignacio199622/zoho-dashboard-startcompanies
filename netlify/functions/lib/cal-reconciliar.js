@@ -57,6 +57,29 @@ async function leadPorEventId(uid) {
   return (j.data || [])[0] || null;
 }
 
+/**
+ * ¿Ya hay una reunión en Zoho para esta reserva? Hace falta además de `leadPorEventId`:
+ * cuando quien reserva es un CLIENTE (Contacto), convertCal cuelga la reunión del Contacto y
+ * ningún lead guarda el uid. Caso Julio Rodriguez 11-nov-2026: reservó 13:13, convertCal creó la
+ * reunión 13:14, a las 13:34 el reconciliador no encontró lead, reenvió y salió una segunda
+ * reunión con un segundo WhatsApp de "quedó reservada".
+ * Se busca por el inicio exacto y se reconoce por el link de Meet o por el nombre.
+ */
+export async function reunionPorReserva(b) {
+  const t = new Date(b.start).getTime();
+  const iso = (ms) => new Date(ms).toISOString().slice(0, 19) + '+00:00';
+  const criterio = `((Start_DateTime:greater_equal:${iso(t - 60e3)})and(Start_DateTime:less_equal:${iso(t + 60e3)}))`;
+  const j = await zohoGet(`Events/search?criteria=${encodeURIComponent(criterio)}&fields=id,Event_Title,Venue&per_page=50`);
+  const meet = String(b.meetingUrl || b.location || '').trim();
+  const palabras = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+  const nombre = palabras(clienteDe(b)?.name);
+  return (j.data || []).find((e) => {
+    if (meet && e.Venue && String(e.Venue).trim() === meet) return true;
+    const tit = new Set(palabras(e.Event_Title));
+    return nombre.length > 0 && nombre.every((w) => tit.has(w));
+  }) || null;
+}
+
 /** El teléfono con el que conviene reenviar: el 9 argentino si ese lead ya existe. */
 async function telefonoParaZoho(tel) {
   if (!tel) return tel;
@@ -214,6 +237,7 @@ export async function pasadaReconciliar({ ahora = new Date(), aplicar = env.CAL_
     if ((ahora - new Date(b.createdAt)) / 60000 < ESPERA_MIN) { resumen.esperando++; continue; }
     try {
       if (await leadPorEventId(b.uid)) { resumen.enZoho++; await store.set(clave, 'zoho'); continue; }
+      if (await reunionPorReserva(b)) { resumen.enZoho++; await store.set(clave, 'zoho-reunion'); continue; }
       const nombre = clienteDe(b)?.name || '?';
       const cal = b.eventType?.slug || b.eventTypeId;
       const cuando = new Date(b.start).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'short', timeStyle: 'short' });

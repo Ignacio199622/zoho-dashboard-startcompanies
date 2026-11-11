@@ -31,6 +31,7 @@ import { get, conversacionesDesde } from './zoho.js';
 import { confirmarReunion } from './escritura.js';
 import { cerrarPisadas, reservaDe, reservaCanceladaDe, mandarBotonReprogramar, primerNombre, HORAS_VENTANA } from './reprogramar.js';
 import { reservarDeNuevo } from './cal.js';
+import { pideCambioCliente, mandarLinkCliente } from './reprogramar-cliente.js';
 
 
 export const HORAS_ATRAS = 2; // reuniones que ya empezaron hace poco tambien cuentan
@@ -41,10 +42,10 @@ const normalizar = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "
 
 // Lo que mandan los botones. Van primero y valen en cualquier momento desde que
 // existe la reunion.
-const BOTON_SI = new Set(['si', 'confirmo', 'sim', 'yes']); // 28-oct-2026: 'yes' = botón de cliente_confirmacion_24h_en
+const BOTON_SI = new Set(['si', 'confirmo', 'sim', 'yes', 'i confirm']); // 28-oct-2026: 'yes' = botón de cliente_confirmacion_24h_en; 10-nov: 'i confirm' = gemelas _en de "Confirmo"
 // Brasil (14-oct-2026): "Não" llega normalizado como "nao"; "preciso reagendar/remarcar"
 // es el par de "necesito reprogramar" (va a la misma rama, reprograma).
-const BOTON_NO = new Set(['no', 'necesito reprogramar', 'nao', 'preciso reagendar', 'preciso remarcar']);
+const BOTON_NO = new Set(['no', 'necesito reprogramar', 'nao', 'preciso reagendar', 'preciso remarcar', 'i need to reschedule']); // 10-nov: botón _en de "Necesito reprogramar"
 
 // Escrito a mano. Frases ENTERAS: "si manana estoy" cuenta, "si pero a que
 // hora" no (tiene pregunta y ademas no esta en la lista).
@@ -93,7 +94,7 @@ const NO_ESCRITO = /* @__PURE__ */ new Set([
  */
 // Pide OTRO horario (no dice que no viene): le sale el boton para mover su reserva
 // (ver reprogramar.js). Caso Esteban Daza, 1-oct-2026.
-const PIDE_OTRO_HORARIO = /\b(reag\w*ndar|reprogramar|remarcar|cambiar (el|de) horario|otro horario)\b/;
+const PIDE_OTRO_HORARIO = /\b(reag\w*ndar|reprogramar|remarcar|cambiar (el|de) horario|otro horario|reschedule|another time)\b/; // 10-nov: inglés
 
 export function leerRespuesta(texto) {
   const bruto = String(texto == null ? '' : texto);
@@ -193,6 +194,15 @@ export function decidir(conversaciones, reuniones, todas = reuniones) {
     if (!liberadas.has(e.What_Id.id)) liberadas.set(e.What_Id.id, []);
     liberadas.get(e.What_Id.id).push(e);
   }
+  // Reuniones de CLIENTES abiertas por Contacto (con o sin Confirmacion): para el
+  // "necesito reprogramar" de un cliente (reprogramar-cliente.js, caso Julio 11-nov-2026).
+  const clientesAbiertas = /* @__PURE__ */ new Map();
+  for (const e of todas) {
+    if (e.Tipo_de_reuni_n !== "Clientes" || !e.Who_Id?.id || e.Status_del_Meet) continue;
+    if (/^\[(CANCELADA|REAGENDADA)\]/.test(e.Event_Title || "")) continue;
+    if (!clientesAbiertas.has(e.Who_Id.id)) clientesAbiertas.set(e.Who_Id.id, []);
+    clientesAbiertas.get(e.Who_Id.id).push(e);
+  }
   const porPersona = /* @__PURE__ */ new Map();
   const porTelefono = /* @__PURE__ */ new Map();
   const masCercana = (mapa, clave2, e) => {
@@ -219,6 +229,21 @@ export function decidir(conversaciones, reuniones, todas = reuniones) {
       }
       if (horarios.size > 1) {
         cruces.push({ evento: previas[0], conversacion: c, decision: { accion: "revisar", motivo: "pidio reprogramar y tiene mas de una reunion" } });
+        continue;
+      }
+    }
+    const delCliente = quien2 && clientesAbiertas.get(quien2);
+    if (delCliente && pideCambioCliente(c.last_message__s)) {
+      const cuando3 = new Date(c.message_time__s);
+      const prox = delCliente
+        .filter((e) => new Date(e.Created_Time) <= cuando3 && new Date(e.Start_DateTime) > cuando3)
+        .sort((a, b) => new Date(a.Start_DateTime) - new Date(b.Start_DateTime));
+      if (prox.length === 1) {
+        cruces.push({ evento: prox[0], conversacion: c, decision: { accion: "reprogramar_cliente", motivo: "pidio otro horario" } });
+        continue;
+      }
+      if (prox.length > 1) {
+        cruces.push({ evento: prox[0], conversacion: c, decision: { accion: "revisar", motivo: "cliente pidio reprogramar y tiene mas de una reunion" } });
         continue;
       }
     }
@@ -287,6 +312,23 @@ export async function unaPasada({ escribir = false, ahora = /* @__PURE__ */ new 
       } else if (escribir) {
         try {
           salida.ejecucion = await confirmarReunion(x.evento.id, "No asiste");
+        } catch (e) {
+          salida.ejecucion = { ok: false, error: String(e.message) };
+        }
+      }
+      resultados.push(salida);
+      continue;
+    }
+    if (x.decision.accion === "reprogramar_cliente") {
+      const clave2 = `reprogcli:${x.evento.id}`;
+      if (hechos.has(clave2)) continue;
+      salida.clave = clave2;
+      const edad = (ahora - new Date(x.conversacion.message_time__s)) / 36e5;
+      if (edad > HORAS_VENTANA) {
+        salida.decision = { accion: "revisar", motivo: "cliente pidio reprogramar hace mas de 23 h" };
+      } else if (escribir) {
+        try {
+          salida.ejecucion = await mandarLinkCliente(x.evento);
         } catch (e) {
           salida.ejecucion = { ok: false, error: String(e.message) };
         }

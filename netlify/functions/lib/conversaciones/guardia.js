@@ -80,6 +80,17 @@ export const FERIADOS = new Set([
   '2028-11-10', // Veterans Day (observado, cae sabado)
   '2028-11-23', // Thanksgiving
   '2028-12-25', // Christmas Day
+  '2027-12-31', // New Year's Day 2028 (observado, cae sabado)
+  '2028-01-17', // Martin Luther King Jr. Day
+  '2028-02-21', // Presidents' Day
+  '2028-05-29', // Memorial Day
+  '2028-06-19', // Juneteenth
+  '2028-07-04', // Independence Day
+  '2028-09-04', // Labor Day
+  '2028-10-09', // Columbus Day
+  '2028-11-10', // Veterans Day (observado, cae sabado)
+  '2028-11-23', // Thanksgiving
+  '2028-12-25', // Christmas Day
   // Mismo rango que el bloqueo de Cal (hasta 2028-12-25). Antes de 2029, sumar el año.
 ]);
 
