@@ -26,6 +26,7 @@ import { env } from './entorno.js';
 import { tokenZoho } from './aprobacion.js';
 import { api as slack } from './slack.js';
 import { clienteDe } from './cal-cliente.js';
+import { cancelarReunionCliente, cerrarReunionReagendada } from './conversaciones/escritura.js';
 
 const CAL = 'https://api.cal.com/v2';
 const ZOHO = 'https://www.zohoapis.com/crm/v6';
@@ -263,5 +264,63 @@ export async function pasadaReconciliar({ ahora = new Date(), aplicar = env.CAL_
       resumen.errores.push(`${b.uid}: ${e.message}`);
     }
   }
+  resumen.clientesCancelados = await cerrarClientesCancelados({ ahora, aplicar }).catch((e) => ({ errores: [e.message] }));
   return resumen;
+}
+
+// ─── CANCELACIONES Y REAGENDAS DE CLIENTES EN CAL (11-nov-2026) ─────────────
+//
+// El Flow "Cal" ubica la reunión a cancelar/reagendar buscando el uid en Leads.eventId.
+// Un CLIENTE (Contacto) no tiene lead con ese uid: Cal avisa la cancelación y en Zoho la
+// reunión queda viva (con recordatorios). Medido con una reserva de soporte PT de prueba
+// (11-nov, 8 min sin cambio). Acá se barren las reservas canceladas de las dos cuentas y,
+// si en Zoho hay una reunión de Clientes viva a esa hora y de esa persona, se cierra sin
+// reglas: cancelada -> [CANCELADA] + Cancelar del blueprint; reagendada (rescheduledToUid)
+// -> [REAGENDADA]. Las de venta las sigue manejando el Flow, no se tocan.
+const CUENTAS_CAL = () => [['ventas', env.CALCOM_API_KEY], ['br', env.CALCOM_API_KEY_BR]].filter(([, k]) => k);
+const palabras = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+
+async function canceladasRecientes(clave, ahora) {
+  // Canceladas cuyo inicio todavía no pasó (o pasó hace poco), las más próximas primero.
+  const desde = new Date(ahora.getTime() - 3 * 36e5).toISOString();
+  const r = await fetch(`${CAL}/bookings?status=cancelled&afterStart=${encodeURIComponent(desde)}&take=100&sortStart=asc`, { headers: { Authorization: `Bearer ${clave}`, 'cal-api-version': '2024-08-13' } });
+  const j = await r.json().catch(() => ({}));
+  return (j.data || []).filter((b) => new Date(b.updatedAt || b.createdAt) > new Date(ahora.getTime() - 3 * 864e5));
+}
+
+export async function cerrarClientesCancelados({ ahora = new Date(), aplicar = env.CAL_RECONCILIAR_APLICAR === '1' } = {}) {
+  const out = { revisadas: 0, cerradas: [], errores: [] };
+  const store = almacen();
+  for (const [cuenta, clave] of CUENTAS_CAL()) {
+    let lista = [];
+    try { lista = await canceladasRecientes(clave, ahora); } catch (e) { out.errores.push(`${cuenta}: ${e.message}`); continue; }
+    for (const b of lista) {
+      const marca = `cli-cancel-${b.uid}`;
+      if (await store.get(marca)) continue;
+      out.revisadas++;
+      try {
+        const t = new Date(b.start).getTime();
+        const iso = (ms) => new Date(ms).toISOString().slice(0, 19) + '+00:00';
+        const criterio = `((Start_DateTime:greater_equal:${iso(t - 60e3)})and(Start_DateTime:less_equal:${iso(t + 60e3)}))`;
+        const j = await zohoGet(`Events/search?criteria=${encodeURIComponent(criterio)}&fields=id,Event_Title,Who_Id,Tipo_de_reuni_n,Status_del_Meet&per_page=50`);
+        const nombres = new Set((b.attendees || []).flatMap((a) => palabras(a.name)));
+        const viva = (j.data || []).filter((e) => e.Tipo_de_reuni_n === 'Clientes' && !e.Status_del_Meet && !/^\[(CANCELADA|REAGENDADA)\]/.test(e.Event_Title || ''))
+          .filter((e) => palabras(`${e.Who_Id?.name || ''} ${e.Event_Title || ''}`).some((w) => nombres.has(w)));
+        if (viva.length !== 1) { await store.set(marca, viva.length ? 'varias' : 'nada'); continue; }
+        const e = viva[0];
+        const reagendada = Boolean(b.rescheduledToUid);
+        if (!aplicar) { out.cerradas.push({ id: e.id, titulo: e.Event_Title, reagendada, sombra: true }); continue; }
+        const w = reagendada
+          ? await cerrarReunionReagendada(e.id, e.Event_Title)
+          : await cancelarReunionCliente(e.id, e.Event_Title, 'El cliente cancelo la reserva en Cal.');
+        if (!w.ok) { out.errores.push(`${e.id}: ${w.error}`); continue; }
+        out.cerradas.push({ id: e.id, titulo: e.Event_Title, reagendada });
+        await store.set(marca, `cerrada ${ahora.toISOString()}`);
+        await avisar(`${reagendada ? '🔁' : '🗓️'} Cliente ${reagendada ? 'reagendó' : 'canceló'} en Cal y el Flow no lo pasó a Zoho: cerré *${e.Event_Title}* (${reagendada ? '[REAGENDADA]' : '[CANCELADA]'}, sin mensajes).`).catch(() => {});
+      } catch (err) {
+        out.errores.push(`${b.uid}: ${err.message}`);
+      }
+    }
+  }
+  return out;
 }

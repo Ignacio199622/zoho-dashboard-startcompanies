@@ -667,7 +667,7 @@ const TRANSICION_CANCELAR = '6698625000057804020';
  * (candado del 16-sep-2026). Confirmacion no se toca (mandaria WhatsApp).
  * La transicion es la misma que usa el equipo desde la ficha: no tiene acciones.
  */
-export async function cancelarReunionCliente(eventId, titulo) {
+export async function cancelarReunionCliente(eventId, titulo, motivo = 'El cliente cancelo la reserva desde Calendly.') {
   // La cerró la red de reprogramar de clientes (reprogramar-cliente.js): ya está [REAGENDADA]
   // y sin reglas. No se pisa el título ni se aprieta Cancelar (11-nov-2026).
   const ahora = (await get(`Events/${eventId}?fields=Event_Title`)).data?.[0]?.Event_Title || '';
@@ -677,7 +677,7 @@ export async function cancelarReunionCliente(eventId, titulo) {
   const code = r.cuerpo?.data?.[0]?.code;
   if (code !== 'SUCCESS') return { ok: false, http: r.http, error: JSON.stringify(r.cuerpo?.data?.[0] || r.cuerpo).slice(0, 160) };
   const t = await put(`Events/${eventId}/actions/blueprint`, {
-    blueprint: [{ transition_id: TRANSICION_CANCELAR, data: { Motivo_de_cancelaci_n: 'El cliente cancelo la reserva desde Calendly.' } }],
+    blueprint: [{ transition_id: TRANSICION_CANCELAR, data: { Motivo_de_cancelaci_n: motivo } }],
   });
   const j = await get(`Events/${eventId}?fields=id,Status_del_Meet`);
   const estatus = j.data?.[0]?.Status_del_Meet || null;
