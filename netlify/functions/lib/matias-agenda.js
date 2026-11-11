@@ -29,7 +29,8 @@ export const CALENDARIOS = { meta: 3277560, lili: 6554416, socios: 3277560, part
 export const LANDING_POR_ORIGEN = { meta: 'agendamientoform', ctwa: 'agendamientoform', socios: 'agendamientoform', lili: 'lili-plataforma', partner: 'partners-sc' };
 // Brasil (27-oct-2026): los de LLC van a agendaformmeta-br de la cuenta Cal de Administracion
 // (cal.com/startcompanies, horarios propios, en portugués). Lili y partner no tienen copia BR.
-export const CALENDARIOS_BR = { meta: 7661489, socios: 7661489, ctwa: 7661489 };
+// 11-nov-2026: Lili tiene copia BR en .net (lili-bank-plataforma-br 7876608, mismas preguntas Si/No).
+export const CALENDARIOS_BR = { meta: 7661489, socios: 7661489, ctwa: 7661489, lili: 7876608 };
 const esBR = (numero) => paisDe(numero) === 'BR';
 const calendarioDe = (origen, numero) => (esBR(numero) && CALENDARIOS_BR[origen || 'meta']) || CALENDARIOS[origen] || CALENDARIOS.meta;
 
