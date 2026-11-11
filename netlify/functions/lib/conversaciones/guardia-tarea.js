@@ -158,8 +158,10 @@ export async function correrGuardia({
   // Marcos de Lima, Jessica Castano) se quedaron sin tarea ni aviso toda la
   // noche, sin nada en Slack porque la corrida no hacia nada nuevo.
   let nuevos = 0;
+  let revisados = 0;
   for (const a of avisos) {
     if (nuevos >= tope || aMandar.length >= TOPE_POR_CORRIDA) break;
+    revisados++;
     // "No me interesa" no se contesta: ni aviso, ni tarea, ni secuencia. Va
     // antes de buscar la ficha para no gastar una llamada en alguien que no
     // se va a tocar.
@@ -243,6 +245,10 @@ export async function correrGuardia({
   }
   let memAvisosCambio = false;
 
+  // Para la alarma de "trabada" (guardia-background): cuantos quedaron sin
+  // mirar porque la corrida corto antes, y cuantos nuevos se iban a atender.
+  salida.sinRevisar = avisos.length - revisados;
+  salida.nuevos = nuevos;
   salida.saltados = salida0.saltados;
   salida.sinFicha = salida0.sinFicha;
   salida.rechazos = salida0.rechazos;

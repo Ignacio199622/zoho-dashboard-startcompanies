@@ -75,6 +75,18 @@ export default async () => {
     if (r.tareas > 0 || r.avisos > 0 || r.fallas > 0) {
       await avisarResumen('La guardia de fuera de horario', resumen, r.linea);
     }
+    // ALARMA DE TRABADA (11-nov-2026, feriado): todo el dia corrio con 37-44
+    // esperando y dio "0 tareas, 0 avisos" en silencio; nos enteramos porque
+    // un cliente (Jacobo Mizrahi) no recibio nada. Si quedo gente sin mirar o
+    // habia nuevos y la corrida no hizo nada, algo la esta frenando. Va por
+    // avisarFalla, que repite el mismo aviso a lo sumo una vez por hora.
+    else if ((r.sinRevisar > 0 || r.nuevos > 0) && r.tareas === 0 && r.avisos === 0) {
+      await avisarFalla(
+        'La guardia de fuera de horario',
+        new Error(`TRABADA: ${r.nuevos || 0} nuevos y ${r.sinRevisar || 0} sin revisar, pero 0 tareas y 0 avisos`),
+        'Hay gente esperando fuera de horario y la guardia no les crea tarea ni aviso. Revisar los logs de guardia-background.'
+      );
+    }
     return new Response('ok', { status: 200 });
   } catch (e) {
     // Que falle es una cosa; que falle en silencio es la que deja al equipo
