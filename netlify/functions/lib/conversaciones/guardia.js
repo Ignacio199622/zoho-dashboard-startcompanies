@@ -460,10 +460,14 @@ export function paraAvisar(pendientes, ahora = new Date(), yaAvisados = new Set(
   // El que espera hace mas rato primero, por si hay que cortar por el tope.
   avisos.sort((a, b) => b.minutosEsperando - a.minutosEsperando);
 
-  if (avisos.length > TOPE_POR_CORRIDA) {
-    return { avisos: avisos.slice(0, TOPE_POR_CORRIDA), corte: avisos.length };
-  }
-  return { avisos, corte: null };
+  // NO se recorta aca. Bug del 11-nov-2026 (feriado): el cierre arranco el
+  // martes 18:00 y a la mañana ya habia 37 esperando. Cortar en los 20 que mas
+  // esperaron dejaba solo a los de anoche (todos con tarea, conversacion
+  // cerrada o "No me interesa") y nadie que escribiera hoy entraba nunca:
+  // Jacobo Mizrahi 12:50, 0 tareas y 0 avisos en todas las corridas del dia.
+  // El tope real esta en `correrGuardia`, que cuenta solo a los NUEVOS
+  // despues de saltear a los que ya tienen tarea. `corte` queda como dato.
+  return { avisos, corte: avisos.length > TOPE_POR_CORRIDA ? avisos.length : null };
 }
 
 // ─── La que ya esta atendiendo una persona ─────────────────────────────────

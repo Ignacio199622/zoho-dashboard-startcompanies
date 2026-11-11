@@ -215,7 +215,7 @@ export async function correrGuardia({
   }
 
   decir(`${conversaciones.length} chats con movimiento, ${esperando.length} esperando, ${avisos.length} con aviso.`);
-  if (corte) decir(`OJO: eran ${corte}, se corto por el tope de seguridad.`);
+  if (corte) decir(`OJO: hay ${corte} esperando; se toman de a ${tope} nuevos por corrida.`);
 
   const listos = aplicar
     ? { Leads: await camposListos('Leads'), Contacts: await camposListos('Contacts') }
