@@ -117,4 +117,38 @@ caso('en horario no sale nada', () => {
   assert.equal(paraAvisar([{ ...pend(60), cuando: new Date('2026-11-03T02:00:00Z') }], martesMediodia).avisos.length, 0);
 });
 
+// ─── PT/EN sin una sola palabra en español (11-nov-2026, Marcos de Lima) ───
+// Recorre feriado, finde, madrugada, noche y viernes, con y sin pedido (CX).
+{
+  const { avisoEnIdioma, tieneIdioma } = await import('../netlify/functions/lib/conversaciones/guardia.js');
+  // Palabras que son SOLO español (feriado, sábado, domingo también son portugués).
+  const SOLO_ES = 'ya|terminamos|jornada|respondemos|jueves|miércoles|viernes|lunes|martes|escribí|consulta|acá|abajo|aunque|hayas|mañana|hoy|el|las|los|noviembre|diciembre|enero|hábil|está|equipo';
+  const PROHIBIDO = {
+    'Português': new RegExp(`(^|[^\\p{L}])(${SOLO_ES})(?![\\p{L}])`, 'iu'),
+    English: new RegExp(`(^|[^\\p{L}])(${SOLO_ES}|feriado|sábado|domingo|hoje|amanhã|às|dia|útil|porque|não|novembro)(?![\\p{L}])`, 'iu'),
+  };
+  const momentos = [
+    '2026-11-11T15:00:00Z', // miercoles feriado (Veterans Day), mediodia
+    '2026-11-10T22:30:00Z', // martes 19:30, vispera de feriado
+    '2026-11-14T15:00:00Z', // sabado
+    '2026-11-12T10:00:00Z', // jueves 07:00, antes de abrir
+    '2026-11-13T22:00:00Z', // viernes 19:00
+    '2026-11-26T15:00:00Z', // Thanksgiving
+  ];
+  for (const idioma of ['Português', 'English']) {
+    caso(`${idioma}: hay textos`, () => assert.equal(tieneIdioma(idioma), true));
+    for (const m of momentos) {
+      for (const conPedido of [false, true]) {
+        caso(`${idioma} ${m} ${conPedido ? 'CX' : 'ventas'}: sin español`, () => {
+          const r = avisoEnIdioma(idioma, new Date(m), { conPedido });
+          const todo = `${r.porQue} | ${r.vuelta}`;
+          assert.doesNotMatch(todo, PROHIBIDO[idioma], todo);
+          assert.doesNotMatch(todo, /\n/, 'salto de linea: Meta rechaza la variable');
+        });
+      }
+    }
+  }
+  caso('Español no se traduce (va la plantilla de siempre)', () => assert.equal(tieneIdioma('Español'), false));
+}
+
 console.log(`\n${ok} casos OK`);

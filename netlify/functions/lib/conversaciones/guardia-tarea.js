@@ -358,7 +358,12 @@ export async function correrGuardia({
         // En el idioma de la ficha (10-nov-2026). Apagado hasta que existan las plantillas
         // PT/EN y las reglas de Zoho elijan plantilla por Idioma: GUARDIA_IDIOMAS=1.
         const idiomaFicha = donde.registro.Idioma;
-        const traducido = process.env.GUARDIA_IDIOMAS === '1' && tieneIdioma(idiomaFicha)
+        // 11-nov-2026: ya NO depende de GUARDIA_IDIOMAS. Las plantillas PT/EN
+        // estan aprobadas y las reglas de Zoho eligen por Idioma; con la bandera
+        // apagada (corrida a mano, 10-nov 19:52) Marcos de Lima recibio la
+        // plantilla en portugues con "ya terminamos la jornada... el jueves"
+        // en español adentro. Si la ficha es PT/EN, las variables van en PT/EN.
+        const traducido = tieneIdioma(idiomaFicha)
           ? avisoEnIdioma(idiomaFicha, ahora, { conPedido: donde.equipo === 'CX' })
           : null;
         if (traducido) caso.idioma = idiomaFicha;
