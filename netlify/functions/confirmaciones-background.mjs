@@ -145,8 +145,22 @@ export default async (req) => {
       avisados.add(x.clave);
       const dijo = String(x.conversacion.last_message__s).trim().slice(0, 60);
       if (seco) lineasReprog.push(`:eyes: *Modo sombra:* le mandaria a ${quien(x)} (cliente) el link para mover su reunion ${cuando(x)} (dijo "${dijo}") · <${linkReunion(x.evento.id)}|ver reunion>`);
-      else if (x.ejecucion?.ok) lineasReprog.push(`:arrows_counterclockwise: ${quien(x)} (cliente) pidio cambiar su reunion ${cuando(x)} ("${dijo}"): le mande por WhatsApp (${x.ejecucion.idioma}) el link para moverla en ${x.ejecucion.origen === 'calendly' ? 'Calendly' : 'Cal'}. Al elegir, la vieja se libera sola. *No le manden /agendar* (es el calendario de ventas) · <${linkReunion(x.evento.id)}|ver reunion>`);
+      else if (x.ejecucion?.ok) lineasReprog.push(`:arrows_counterclockwise: ${quien(x)} (cliente) pidio cambiar su reunion ${cuando(x)} ("${dijo}"): le mande por WhatsApp (${x.ejecucion.idioma}) agendaclientes.startcompanies.io. Cuando reserve la nueva, cancelo la vieja sola. *No le manden /agendar* (es el calendario de ventas) · <${linkReunion(x.evento.id)}|ver reunion>`);
       else lineasReprog.push(`:rotating_light: ${quien(x)} (cliente) pidio cambiar su reunion ${cuando(x)} ("${dijo}") y no pude mandarle el link (${x.ejecucion?.error || 'sin detalle'}). Mandenle agendaclientes.startcompanies.io y cancelen la vieja · <${linkReunion(x.evento.id)}|ver reunion>`);
+    }
+    for (const p of r.viejasClientes || []) {
+      if (p.error) { lineasReprog.push(`:rotating_light: La red de reprogramar de clientes fallo: ${p.error}`); continue; }
+      const clave = `reprogcli-cerrada:${p.cerrar.id}`;
+      if (avisados.has(clave)) continue;
+      const nom = nombreEv(p.cerrar);
+      const hora = p.cerrar.Hora_local_del_cliente || p.cerrar.Start_DateTime;
+      if (seco) lineasReprog.push(`:eyes: *Modo sombra:* cerraria la reunion vieja de ${nom} (${hora}): ya reservo otra (${p.queda.Hora_local_del_cliente || p.queda.Start_DateTime})`);
+      else if (!p.zoho?.ok) { lineasReprog.push(`:rotating_light: ${nom} (cliente) reservo otra y no pude cerrar la vieja ${hora} en Zoho: ${p.zoho?.error} · <${linkReunion(p.cerrar.id)}|ver reunion>`); continue; }
+      else {
+        const org = p.duplicada ? ' (era un duplicado del mismo horario)' : p.origen?.ok ? ` y la cancele en ${p.origen.donde || 'el origen'}${p.origen.nota ? ` (${p.origen.nota})` : ''}` : `, pero NO pude cancelarla en Calendly/Cal: ${p.origen?.error}`;
+        lineasReprog.push(`:recycle: ${nom} (cliente) reprogramo: cerre su reunion vieja ${hora}${org}. Queda la de ${p.queda.Hora_local_del_cliente || p.queda.Start_DateTime} · <${linkReunion(p.queda.id)}|ver reunion>`);
+      }
+      avisados.add(clave);
     }
     // El que pidio reprogramar, no la movio y no vino: No asistio solo, y arranca Matias.
     try {
@@ -348,7 +362,7 @@ export default async (req) => {
 
     await store.setJSON('confirmaciones', {
       desde: ahora.toISOString(),
-      avisados: [...avisados].slice(-500),
+      avisados: [...avisados].slice(-2000), // 11-nov: 500 -> 2000, las claves reprogcli: tienen que durar hasta que el cliente reserve
       plantillas,
       reprogramados,
     });

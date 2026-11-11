@@ -31,7 +31,7 @@ import { get, conversacionesDesde } from './zoho.js';
 import { confirmarReunion } from './escritura.js';
 import { cerrarPisadas, reservaDe, reservaCanceladaDe, mandarBotonReprogramar, primerNombre, HORAS_VENTANA } from './reprogramar.js';
 import { reservarDeNuevo } from './cal.js';
-import { pideCambioCliente, mandarLinkCliente } from './reprogramar-cliente.js';
+import { pideCambioCliente, mandarLinkCliente, cerrarViejasClientes } from './reprogramar-cliente.js';
 
 
 export const HORAS_ATRAS = 2; // reuniones que ya empezaron hace poco tambien cuentan
@@ -295,7 +295,14 @@ export async function unaPasada({ escribir = false, ahora = /* @__PURE__ */ new 
   const corte = desde || new Date(ahora.getTime() - 6 * 36e5);
   const [conversaciones, proximas2] = await Promise.all([conversacionesDesde(corte), reunionesProximas(ahora)]);
   const pisadas2 = await cerrarPisadas({ todas: proximas2, escribir, ahora });
-  const fuera = new Set(pisadas2.filter((p) => !p.dudosa && (!escribir || p.zoho?.ok)).map((p) => p.cerrar.id));
+  // Clientes que pidieron reprogramar (se les mando agendaclientes) y ya reservaron otra:
+  // se cierra la vieja (reprogramar-cliente.js). Las pedidas salen de las claves `reprogcli:<id>`.
+  const pedidas = new Set([...hechos].filter((k) => String(k).startsWith('reprogcli:')).map((k) => String(k).slice(10)));
+  const viejasCli = await cerrarViejasClientes({ todas: proximas2, pedidas, escribir, ahora }).catch((e) => [{ error: e.message }]);
+  const fuera = new Set([
+    ...pisadas2.filter((p) => !p.dudosa && (!escribir || p.zoho?.ok)).map((p) => p.cerrar.id),
+    ...viejasCli.filter((p) => p.cerrar && (!escribir || p.zoho?.ok)).map((p) => p.cerrar.id),
+  ]);
   const todas = proximas2.filter((e) => !fuera.has(e.id));
   const cruces = decidir(conversaciones, soloPendientes(todas), todas);
   const resultados = [];
@@ -360,5 +367,5 @@ export async function unaPasada({ escribir = false, ahora = /* @__PURE__ */ new 
     }
     resultados.push(salida);
   }
-  return { leidas: conversaciones.length, reuniones: todas.length, resultados, pisadas: pisadas2 };
+  return { leidas: conversaciones.length, reuniones: todas.length, resultados, pisadas: pisadas2, viejasClientes: viejasCli };
 }

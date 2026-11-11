@@ -99,7 +99,7 @@ export const ESTADOS_YA_FUERA = ['No Interesado', 'Fuera de flujo', 'Nurturing']
 export const TIPOS_QUE_LEEN_LA_FECHA = ["Cuenta Bancaria", "Renovaci\xF3n", "Renovacion"];
 
 const CAMPOS_LEAD =
-  'id,Full_Name,First_Name,Tag,Owner,Lead_Status,Retargeting,Desactivar_Retargeting,En_Nurturing,Fecha_Siguiente_Mensaje,Tipo,Lead_Source,Mobile,Phone,Email';
+  'id,Full_Name,First_Name,Tag,Owner,Lead_Status,Retargeting,Desactivar_Retargeting,En_Nurturing,Fecha_Siguiente_Mensaje,Tipo,Lead_Source,Mobile,Phone,Email,Idioma';
 
 async function put(path, cuerpo, reintento = false) {
   const r = await fetch(`${API}/${path}`, {
@@ -668,6 +668,10 @@ const TRANSICION_CANCELAR = '6698625000057804020';
  * La transicion es la misma que usa el equipo desde la ficha: no tiene acciones.
  */
 export async function cancelarReunionCliente(eventId, titulo) {
+  // La cerró la red de reprogramar de clientes (reprogramar-cliente.js): ya está [REAGENDADA]
+  // y sin reglas. No se pisa el título ni se aprieta Cancelar (11-nov-2026).
+  const ahora = (await get(`Events/${eventId}?fields=Event_Title`)).data?.[0]?.Event_Title || '';
+  if (/^\[REAGENDADA\]/.test(ahora)) return { ok: true, http: 200, error: null, estatus: null, transicion: 'ya reagendada' };
   const nuevo = /^\[CANCELADA\]/.test(titulo || '') ? titulo : `[CANCELADA] ${titulo || ''}`.trim();
   const r = await put('Events', { data: [{ id: eventId, Event_Title: nuevo }], trigger: [] });
   const code = r.cuerpo?.data?.[0]?.code;
@@ -854,7 +858,8 @@ export async function marcarNoShow(eventId, { reglas = true } = {}) {
   if (r.cuerpo?.data?.[0]?.code === "RECORD_IN_BLUEPRINT") {
     const bp = await get(`Events/${eventId}/actions/blueprint`).catch(() => ({}));
     const t = (bp.blueprint?.transitions || []).find((x) => x.next_field_value === "No asisti\xF3");
-    if (t) r = await put(`Events/${eventId}/actions/blueprint`, { blueprint: [{ transition_id: t.id, data: {} }] });
+    // El botón pide vendedor obligatorio (6-nov-2026). Acá lo marca el sistema: no hay vendedor que elegir.
+    if (t) r = await put(`Events/${eventId}/actions/blueprint`, { blueprint: [{ transition_id: t.id, data: { Por_qui_n_fue_abordado: "Sin asignar" } }] });
   }
   const j = await get(`Events/${eventId}?fields=Status_del_Meet`);
   const quedo = j.data?.[0]?.Status_del_Meet || null;
