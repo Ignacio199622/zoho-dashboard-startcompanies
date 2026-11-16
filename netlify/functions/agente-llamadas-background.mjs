@@ -26,11 +26,13 @@ import { analizarLlamada } from './lib/extraer.js';
 import { armarDescripcion, armarNota, tituloNota } from './lib/escribir.js';
 import { usuarioDesdeNombre, estadoDelLead, modalidadDeCierre, canalDesdeLanding, THAIS_BR_ID } from './lib/mapeos.js';
 import { TITULOS_DE_VENTA, PATRONES_PRUEBA, MINIMO_LINEAS_TRANSCRIPCION } from './lib/config.js';
+import { quienAtendio, asignarAtencion } from './lib/atendio.js';
 import { conReintento, dormir } from './lib/reintentar.js';
 import { reunionDeCliente, registrarLlamadaCliente, publicarTarjetaCliente } from './lib/clientes.js';
 
 const MAX_POR_CORRIDA = 4;
 const DIAS_ATRAS = 3;
+const DIAS_ATENCION = 7;
 const MAX_BITACORA = 100;
 
 const vacio = (v) => v === null || v === undefined || String(v).trim() === '';
@@ -147,6 +149,36 @@ export default async () => {
       .slice(0, MAX_POR_CORRIDA);
 
     if (!nuevas.length) avisos.push({ texto: 'no habia llamadas nuevas' });
+
+    // --- quién atendió (español): dueño del lead y reunión. Aparte del análisis: no gasta IA, y así
+    // alcanza a las llamadas que ya estaban procesadas. Portugués queda de Thais, más abajo. ---
+    const atendidas = new Set((await store.get('atendidas', { type: 'json' })) || []);
+    const desdeAtencion = Date.now() - DIAS_ATENCION * 24 * 3600e3;
+    for (const m of todas) {
+      const clave = m.recording_id || m.url;
+      const t = m.title || '';
+      if (atendidas.has(clave) || !TITULOS_DE_VENTA.test(t) || PATRONES_PRUEBA.test(t)) continue;
+      if (!Array.isArray(m.transcript) || m.transcript.length < MINIMO_LINEAS_TRANSCRIPCION) continue;
+      if (new Date(m.scheduled_start_time || m.created_at).getTime() < desdeAtencion || idiomaDeLlamada(m) === 'pt') continue;
+      try {
+        const contexto = { titulo: t.slice(0, 50) };
+        const quien = quienAtendio(m);
+        const mail = mailDelCliente(m);
+        const lead = mail && quien
+          ? ((await zoho(`Leads/search?criteria=(Email:equals:${encodeURIComponent(mail)})&fields=id,Full_Name,Owner,Tipo,Tag,Landing_Origen,Lead_Source,Lead_Status,Idioma,Mobile,Phone,Country`)).data || [])[0]
+          : null;
+        if (!quien) avisos.push({ texto: 'no se identifico quien atendio', contexto });
+        else if (!lead) avisos.push({ texto: 'atendida sin lead por mail', contexto: { ...contexto, quien: quien.nombre } });
+        else {
+          const h = await asignarAtencion(zoho, { lead, quien, fecha: m.scheduled_start_time || m.created_at });
+          avisos.push({ texto: 'atencion asignada', contexto: { lead: lead.Full_Name, quien: quien.nombre, ...h } });
+        }
+        atendidas.add(clave);
+      } catch (e) {
+        errores.push({ donde: 'asignar atencion', mensaje: String(e.message).slice(0, 200), contexto: { titulo: t.slice(0, 40) } });
+      }
+    }
+    await store.setJSON('atendidas', [...atendidas].slice(-2000));
 
     // --- procesar ---
     const F = 'id,Full_Name,Email,Lead_Status,Lead_Source,Landing_Origen,Modalidad_de_Cierre,Description,Owner';

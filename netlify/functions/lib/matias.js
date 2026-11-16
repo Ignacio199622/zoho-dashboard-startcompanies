@@ -207,7 +207,8 @@ export async function mandar(numero, cuerpo, { linea = null, humano = false } = 
 }
 
 // Las gemelas de Brasil ("<nombre>_pt", 14-oct-2026) se crean en Meta en pt_BR; el resto sigue en 'es'.
-const idiomaPlantilla = (nombre) => (String(nombre || '').endsWith('_pt') ? 'pt_BR' : 'es');
+// Las _en (12-nov-2026) se crearon con language 'en'.
+const idiomaPlantilla = (nombre) => { const n = String(nombre || ''); return n.endsWith('_pt') ? 'pt_BR' : n.endsWith('_en') ? 'en' : 'es'; };
 /** Plantilla con parámetros de texto en el cuerpo, en español (o pt_BR si es gemela _pt). */
 export const plantilla = (nombre, parametros) => ({
   type: 'template',

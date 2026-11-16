@@ -32,7 +32,7 @@ import { getStore } from '@netlify/blobs';
 import { env } from './entorno.js';
 import { get, conversacionesDesde } from './conversaciones/zoho.js';
 import { LINEAS, lineaDe, mandar, plantilla as armarPlantilla, plantillaVideo, registrar, enHilo, fusible, estadoDe } from './matias.js';
-import { origenDe, origenDeReunion, paisDe, PLANTILLAS, nombreDe, plantillaPara, textoDe } from './matias-cerebro.js';
+import { origenDe, origenDeReunion, paisDe, PLANTILLAS, nombreDe, plantillaPara, textoDe, esIngles } from './matias-cerebro.js';
 import { esHoraDeAbrir, estadoPlantillas, conviveCon786 } from './matias-apertura.js';
 import * as hilo from './hilo.js';
 import { ofrecer, enZona, zonaDe } from './matias-agenda.js';
@@ -66,13 +66,20 @@ const videoDe = (lead) => {
 };
 const isoZoho = (d) => new Date(d).toISOString().replace(/\.\d{3}Z$/, '+00:00');
 const CAMPOS_EVENTO = 'id,Event_Title,Start_DateTime,Created_Time,Confirmaci_n,Tipo_de_reuni_n,What_Id,Who_Id,Hora_de_confirmaci_n,Hora_de_recordatorio,Hora_local_del_cliente';
-const CAMPOS_LEAD = 'id,First_Name,Full_Name,Mobile,Phone,Email,Lead_Status,Calendario,Tag,Tipo,eventId';
+const CAMPOS_LEAD = 'id,First_Name,Full_Name,Mobile,Phone,Email,Lead_Status,Calendario,Tag,Tipo,eventId,Idioma';
 
 // Sale por la línea de la ficha del lead (si no tiene, por la actual).
 const enviarPlantilla = (numero, primerNombre, cuando, libres, plantilla = PLANTILLA) => mandar(numero, armarPlantilla(plantilla, [primerNombre, cuando, libres]));
 
 /** "lunes 14 de septiembre, 16:30 hs (hora de Argentina)" sin la coma rara si Zoho no la puso. */
 const cuandoLegible = (ev) => String(ev.Hora_local_del_cliente || '').trim() || new Date(ev.Start_DateTime).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+// Inglés (12-nov-2026): Hora_local_del_cliente viene en español; se arma de nuevo en su zona.
+const LUGAR_EN = { 'America/New_York': 'New York', 'Europe/Madrid': 'Spain', 'America/Mexico_City': 'Mexico', 'America/Argentina/Buenos_Aires': 'Argentina', 'America/Bogota': 'Colombia' };
+const cuandoEn = (ev, tel) => {
+  const tz = zonaDe(tel);
+  const f = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(ev.Start_DateTime));
+  return `${f} (${LUGAR_EN[tz] || tz.split('/').pop().replace(/_/g, ' ')} time)`;
+};
 
 /** Reuniones de venta sin confirmar, entre 1 y 26 h, con el recordatorio de Zoho ya pasado. */
 export async function sinConfirmar(ahora = new Date()) {
@@ -129,7 +136,7 @@ export async function pasadaConfirmacion({ ahora = new Date(), enviar = false } 
     const enviarPorLinea = enviar && (salud.ok || salud.cuidado);
 
     const nombre = nombreDe(lead, estado);
-    const cuando = cuandoLegible(ev);
+    const cuando = esIngles(lead.Idioma) && paisDe(tel) !== 'BR' ? cuandoEn(ev, tel) : cuandoLegible(ev);
 
     // Reserva nueva (12-oct, Ignacio: "que confirme al momento de agendar, si no a las 3 horas queda
     // liberado el turno"): UN solo mensaje con el video de pre-llamada según el calendario, el pedido
@@ -137,7 +144,7 @@ export async function pasadaConfirmacion({ ahora = new Date(), enviar = false } 
     // (ficha.confirmacion). Si no confirma, liberar-sin-confirmar.js corta a las 3 h (blob confirma-<id>).
     // Sin la plantilla aprobada no se marca nada: queda el Sí/No de Zoho como siempre.
     if (ev._nueva) {
-      const pVideo = plantillaPara('reservaVideo', tel, plantillas);
+      const pVideo = plantillaPara('reservaVideo', tel, plantillas, lead.Idioma);
       if (plantillas[pVideo] !== 'APPROVED') continue;
       if (!enviarPorLinea) { await saltear('reserva nueva: video propuesto, envío apagado'); continue; }
       const texto = textoDe('reservaVideo', pVideo, nombre, cuando);
@@ -171,11 +178,11 @@ export async function pasadaConfirmacion({ ahora = new Date(), enviar = false } 
     // Horarios alternativos reales (el día siguiente a la reunión, en la hora del lead), para que elija en el momento.
     const diaSiguiente = enZona(new Date(new Date(ev.Start_DateTime).getTime() + 24 * H), zonaDe(tel)).fecha;
     let of = { opciones: [], frase: '' };
-    try { of = await ofrecer({ origen: origenDeReunion(ev.Event_Title) || origenDe(lead), numero: tel, dia: diaSiguiente, franja: '', ahora }); } catch (e) { resumen.salteados.push(`${ev.Event_Title}: sin horarios (${e.message})`); }
+    try { of = await ofrecer({ origen: origenDeReunion(ev.Event_Title) || origenDe(lead), numero: tel, dia: diaSiguiente, franja: '', ahora, idioma: lead.Idioma }); } catch (e) { resumen.salteados.push(`${ev.Event_Title}: sin horarios (${e.message})`); }
     if (!of.opciones.length) { await saltear('sin horarios libres para ofrecer'); continue; }
     const clavePl = 'confirmacion';
-    const plantilla = plantillaPara(clavePl, tel, plantillas);
-    if (!plantilla) { await saltear('portugués: sin plantilla _pt aprobada'); continue; } // Brasil: nunca en español
+    const plantilla = plantillaPara(clavePl, tel, plantillas, lead.Idioma);
+    if (!plantilla) { await saltear(esIngles(lead.Idioma) ? 'inglés: sin plantilla _en aprobada' : 'portugués: sin plantilla _pt aprobada'); continue; } // Brasil: nunca en español
     const aprobada = plantillas[plantilla] === 'APPROVED';
     const texto = textoDe(clavePl, plantilla, nombre, cuando, of.frase);
     const sale = enviarPorLinea && aprobada;

@@ -99,7 +99,9 @@ export async function registrarLlamadaCliente(zoho, { contacto, evento, datos, l
   }
   const quien = abordadoPor(datos.vendedor);
   if (quien && !evento.Por_qui_n_fue_abordado) campos.Por_qui_n_fue_abordado = quien;
-  if (datos.cliente_se_presento !== false && !evento.Status_del_Meet) campos.Status_del_Meet = 'Asistió';
+  // 7-nov-2026: NO se escribe Status_del_Meet. La reunion de cliente esta en el blueprint "Circuito de Clientes"
+  // y Zoho rechaza el PUT entero (RECORD_IN_BLUEPRINT): se perdian tambien el resumen y el abordado.
+  // La asistencia la marca el equipo con el boton Asistió (pide resuelto/motivo/nota y dispara la reseña).
 
   if (Object.keys(campos).length) {
     const r = await zoho('Events', { method: 'PUT', body: JSON.stringify({ data: [{ id: evento.id, ...campos }], trigger: [] }) });

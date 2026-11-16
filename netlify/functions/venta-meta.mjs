@@ -299,6 +299,10 @@ export default async (req) => {
 
   const aplicar = env.VENTA_META_APLICAR === '1' && Boolean(env.META_CAPI_TOKEN) && !seco;
   const enviados = new Set(await leerJson(store, 'enviados', []));
+  // Tratos reiniciados en el blueprint de su idioma (idioma-tratos-arreglar.mjs, 10-nov):
+  // { nuevo: viejo }. Si la venta del viejo ya salio a Meta, el nuevo cuenta como enviado.
+  const reiniciados = await leerJson(store, 'reiniciados', {});
+  for (const [nuevo, viejo] of Object.entries(reiniciados)) if (enviados.has(viejo)) enviados.add(nuevo);
   const previo = await store.get('conocidos');
   const conocidos = new Set(JSON.parse(previo || '[]'));
   const pendientes = await leerJson(store, 'pendientes', {});

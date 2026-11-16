@@ -15,6 +15,7 @@
 import { get, token } from './zoho.js';
 import { cambioDe, debeSalir, leadsConReunionVencida, CAMPOS, DANIEL_ID } from './tablero-daniel.js';
 import { planReuniones, reunionesPorLead, CAMPOS_REUNION, CAMPOS_EVENTO, CRITERIO_EN_TABLERO } from './tablero-reuniones.js';
+import { cambioDeFlujo, CAMPOS_FLUJO } from './tablero-socios.js';
 
 const API = 'https://www.zohoapis.com/crm/v6';
 
@@ -51,6 +52,7 @@ export async function unaPasada({ escribir = false, ahora = Date.now() } = {}) {
   const sumar = (lista) => { for (const l of lista) porId.set(l.id, l); };
   sumar(await buscar('Leads', `(Owner:equals:${DANIEL_ID})`, CAMPOS));
   sumar(await buscar('Leads', `((Mobile:starts_with:+54)and(Modified_Time:greater_equal:${fechaZoho(ahora - 24 * 3600 * 1000)}))`, CAMPOS));
+  sumar(await buscar('Leads', `(Created_Time:greater_equal:${fechaZoho(ahora - 48 * 3600 * 1000)})`, CAMPOS));
   sumar(await buscar('Leads', '(Etapa_Daniel:equals:Agendó)', CAMPOS));
   sumar(await buscar('Leads', '(Etapa_Daniel:equals:Perdido)', CAMPOS));
   sumar(await buscar('Leads', '(Etapa_Thais:equals:Perdido)', CAMPOS));
@@ -105,6 +107,18 @@ async function moverTableros(reuniones, ahora, H, r) {
     for (const l of j?.data || []) porId.set(l.id, l);
   }
   const plan = planReuniones([...porId.values()], reuniones, ahora);
+  // Flujo y responsable: los recién llegados y los que ya están en el tablero de Santiago.
+  const flujos = new Map();
+  const criterioFlujo = `((Created_Time:greater_equal:${fechaZoho(ahora - 48 * 3600 * 1000)})or(Etapa_Socios:equals:Por contactar)or(Etapa_Socios:equals:Contactado)or(Etapa_Socios:equals:Reunión agendada))`;
+  for (const l of await buscar('Leads', criterioFlujo, CAMPOS_FLUJO)) flujos.set(l.id, l);
+  // Un mismo lead puede estar en los dos planes: Zoho no acepta el mismo id dos veces en un lote.
+  for (const l of flujos.values()) {
+    const c = cambioDeFlujo(l, ahora);
+    if (!c) continue;
+    const ya = plan.find((x) => x.l.id === l.id);
+    if (ya) ya.c = { ...ya.c, ...c };
+    else plan.push({ l, c });
+  }
   if (!H) { r.tableros = plan.length; return; }
   for (let i = 0; i < plan.length; i += 100) {
     const lote = plan.slice(i, i + 100);

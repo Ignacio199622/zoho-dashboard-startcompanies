@@ -26,7 +26,7 @@ import { env } from './entorno.js';
 import { get } from './conversaciones/zoho.js';
 import { mandarANoShow } from './conversaciones/escritura.js';
 import { LINEAS, lineaDe, mandar, plantilla as armarPlantilla, registrar, enHilo, enviarTexto, fusible, cupoCuidado, repite } from './matias.js';
-import { PLANTILLAS, origenPara, paisDe, proponer, nombreDe, plantillaPara, textoDe } from './matias-cerebro.js';
+import { PLANTILLAS, origenPara, paisDe, proponer, nombreDe, plantillaPara, textoDe, esIngles } from './matias-cerebro.js';
 import { aplicarAccion, contextoDeHoy, ofrecer } from './matias-agenda.js';
 import * as voz from './matias-voz.js';
 import { esHoraDeAbrir, estadoPlantillas } from './matias-apertura.js';
@@ -97,7 +97,13 @@ const DATOS_PT = {
   cedo: { panel: 'o painel é grátis: nele você fatura, vê os vencimentos da sua LLC e suas declarações num só lugar.', panelSin: 'a LLC com conta bancária fica pronta em 7 a 12 dias úteis e o painel para faturar já vem incluído, grátis.', partner: 'os parceiros indicam o cliente e nós fazemos todo o processo; na ligação vemos o modelo.', _: 'a LLC com conta bancária fica pronta em 7 a 12 dias úteis, tudo online.' },
   tarde: { panel: 'se a sua LLC tem algo atrasado (relatório anual ou 5472), em 15 minutos te digo o que falta e quanto custa regularizar.', partner: 'na ligação de parcerias vemos como indicar clientes e quais materiais te damos; são 15 minutos.', _: 'em 15 minutos de assessoria você descobre qual estado compensa, quanto tempo leva e o que precisa; é grátis e sem compromisso.' },
 };
-const datoPara = (origen, tel, toque = 2) => {
+// Inglés (12-nov-2026): el dato entra en la plantilla _en.
+const DATOS_EN = {
+  early: { panel: "the dashboard is free: you send invoices, see your LLC's deadlines and your tax filings all in one place.", panelSin: "your LLC with a bank account is ready in 7 to 12 business days, and the invoicing dashboard comes included for free.", partner: "partners refer the client and we handle the whole process; on the call we go over how it works.", _: "your LLC with a bank account is ready in 7 to 12 business days, all online." },
+  late: { panel: "if your LLC is behind on something (annual report or 5472), in 15 minutes I can tell you what's missing and what it costs to catch up.", partner: "on the partnership call we go over how to refer clients and the materials we give you; it takes 15 minutes.", _: "in a free 15-minute call you'll know which state makes sense for you, how long it takes and what you need. No strings attached." },
+};
+const datoPara = (origen, tel, toque = 2, idioma = '') => {
+  if (esIngles(idioma) && paisDe(tel) !== 'BR') { const t = DATOS_EN[toque >= 6 ? 'late' : 'early']; return t[origen] || t._; }
   if (paisDe(tel) === 'BR') { const t = DATOS_PT[toque >= 6 ? 'tarde' : 'cedo']; return t[origen] || t._; }
   const tabla = toque >= 6 ? (DATOS_TARDE[origen] || DATOS_TARDE.meta) : (DATOS[origen] || DATOS.meta);
   return tabla[paisDe(tel)] || tabla._;
@@ -110,7 +116,7 @@ const enviarPlantillaHorarios = (numero, nombre, libres, plantilla) => mandar(nu
 
 /** ¿Ya agendó? Se lee el lead fresco: es la única llamada a Zoho por lead. */
 async function agendo(leadId) {
-  const j = await get(`Leads/${leadId}?fields=id,Lead_Status,Calendario,reserva,First_Name,Full_Name,Tag,Tipo,Email`);
+  const j = await get(`Leads/${leadId}?fields=id,Lead_Status,Calendario,reserva,First_Name,Full_Name,Tag,Tipo,Email,Idioma`);
   const l = (j.data || [])[0] || {};
   return { lead: l, si: /agendad/i.test(String(l.Lead_Status || '')) || Boolean(l.Calendario) || l.reserva === true };
 }
@@ -240,7 +246,7 @@ export async function pasadaSeguimientos({ ahora = new Date(), enviar = false } 
 
     let texto;
     let comoAudio = false;
-    const datoDelToque = datoPara(noShow ? estado.origen : (estado.variante || estado.origen), `+${tel}`, noShow ? 6 : siguiente);
+    const datoDelToque = datoPara(noShow ? estado.origen : (estado.variante || estado.origen), `+${tel}`, noShow ? 6 : siguiente, lead?.Idioma);
     const datoRepetido = estado.datoEnviado === datoDelToque;
     try {
       if (ventanaAbierta) {
@@ -287,10 +293,10 @@ export async function pasadaSeguimientos({ ahora = new Date(), enviar = false } 
         // La plantilla de horarios se rehizo el 15-sep: hasta que Meta apruebe la
         // nueva, el toque queda para la próxima pasada (no se manda la rota).
         const estados = enviar ? await plantillasDe(linea) : {};
-        const plantilla = plantillaPara('horarios', tel, estados);
-        if (!plantilla) { resumen.salteados.push(`${tel}: portugués sin plantilla _pt aprobada`); continue; } // Brasil: nunca en español
+        const plantilla = plantillaPara('horarios', tel, estados, lead?.Idioma);
+        if (!plantilla) { resumen.salteados.push(`${tel}: ${esIngles(lead?.Idioma) ? 'inglés sin plantilla _en aprobada' : 'portugués sin plantilla _pt aprobada'}`); continue; } // Brasil: nunca en español
         if (enviar && estados[plantilla] !== 'APPROVED') { resumen.salteados.push(`${tel}: plantilla ${plantilla} sin aprobar`); continue; }
-        const of = await ofrecer({ origen: origenPara(lead, estado), numero: `+${tel}`, dia: '', franja: '', ahora });
+        const of = await ofrecer({ origen: origenPara(lead, estado), numero: `+${tel}`, dia: '', franja: '', ahora, idioma: lead?.Idioma });
         if (!of.opciones.length) { resumen.salteados.push(`${tel}: sin horarios para ofrecer`); continue; }
         texto = textoDe('horarios', plantilla, nombre, of.frase);
         if (enviar) await enviarPlantillaHorarios(tel, nombre, of.frase, plantilla);
@@ -298,8 +304,8 @@ export async function pasadaSeguimientos({ ahora = new Date(), enviar = false } 
       } else {
         // El último del no-show lleva el dato "tardío" (la asesoría son 15 minutos gratis), no el de apertura.
         const dato = datoDelToque;
-        const plantilla = plantillaPara('seguimiento', tel, enviar ? await plantillasDe(linea) : {});
-        if (!plantilla) { resumen.salteados.push(`${tel}: portugués sin plantilla _pt aprobada`); continue; } // Brasil: nunca en español
+        const plantilla = plantillaPara('seguimiento', tel, enviar ? await plantillasDe(linea) : {}, lead?.Idioma);
+        if (!plantilla) { resumen.salteados.push(`${tel}: ${esIngles(lead?.Idioma) ? 'inglés sin plantilla _en aprobada' : 'portugués sin plantilla _pt aprobada'}`); continue; } // Brasil: nunca en español
         texto = textoDe('seguimiento', plantilla, nombre, dato);
         if (enviar) await enviarPlantillaSeguimiento(tel, nombre, dato, plantilla);
         estado.datoEnviado = dato;

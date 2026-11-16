@@ -47,6 +47,9 @@ export const LISTA_BLANCA = new Set([
   // 11-sep-2026) manda "No interesado". Es el mismo carril: boton de respuesta
   // rapida, texto fijo, sin ambiguedad. Ver [[project_zoho_retargeting_flows]].
   'no interesado',
+  // Inglés (10-nov-2026): botón de las gemelas _en de las plantillas con
+  // "No me interesa SC" / "No interesado". Mismo carril.
+  'not interested',
 ]);
 
 /** minusculas, sin tildes, sin puntuacion ni emojis, espacios colapsados. */

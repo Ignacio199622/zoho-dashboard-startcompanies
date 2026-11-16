@@ -113,9 +113,9 @@ export default async (req) => {
         if (!enviar) { await decir(`💡 *Empujón propuesto (no se mandó):*\n> ${texto.split('\n').join('\n> ')}`); continue; }
         await matias.enviarTexto(tel, texto);
       } else {
-        const of = await ofrecer({ origen: estado.origen || 'meta', numero: `+${tel}`, dia: '', franja: '', ahora });
+        const of = await ofrecer({ origen: estado.origen || 'meta', numero: `+${tel}`, dia: '', franja: '', ahora, idioma: lead?.Idioma });
         if (!of.opciones.length) { await decir('🛑 Empujón: sin horarios para ofrecer.'); continue; }
-        const plantilla = plantillaPara('horarios', tel, plantillas);
+        const plantilla = plantillaPara('horarios', tel, plantillas, lead?.Idioma);
         const aprobada = plantillas[plantilla] === 'APPROVED';
         texto = textoDe('horarios', plantilla, nombre, of.frase);
         ofrecidos = of.opciones;

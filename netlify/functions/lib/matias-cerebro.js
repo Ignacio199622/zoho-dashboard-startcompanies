@@ -94,7 +94,20 @@ export const registroDe = (numero) => {
 // Cada plantilla sdr_matias_* tiene su copia sdr_daniel_*; mientras Meta no la apruebe sale la de Matías.
 const aDaniel = (nombre) => nombre.replace('sdr_matias_', 'sdr_daniel_');
 const conDaniel = (lista) => lista.flatMap((c) => [aDaniel(c), c]);
-export function plantillaPara(clave, numero, estados = {}) {
+/** ¿La ficha dice English? (campo Idioma del lead en Zoho). */
+export const esIngles = (idioma) => /english|ingl/i.test(String(idioma || ''));
+// No asistió en inglés: Meta aprobó la _btn_en como MARKETING, que no llega a números +1
+// (error 131049). Para +1 va primero la gemela de utilidad (12-nov-2026).
+const UTILIDAD_EN = { noAsistio: 'sdr_daniel_no_asistio_util_btn_en' };
+export function plantillaPara(clave, numero, estados = {}, idioma = '') {
+  // Inglés (Ignacio, 12-nov-2026): con Idioma = English en la ficha, SOLO la gemela
+  // "sdr_daniel_<nombre>_en" aprobada. Si no hay, null: igual que en portugués, nunca
+  // cae al español. Brasil manda sobre el idioma (un +55 sigue en portugués).
+  if (esIngles(idioma) && registroDe(numero) !== 'pt') {
+    const gemelas = [PLANTILLAS[clave], PLANTILLAS_SIN_BOTONES[clave]].filter(Boolean).map((b) => `${aDaniel(b)}_en`);
+    if (UTILIDAD_EN[clave] && paisDe(numero) === 'US') gemelas.unshift(UTILIDAD_EN[clave]);
+    return gemelas.find((c) => estados[c] === 'APPROVED') || null;
+  }
   // Portugués: SOLO la gemela "<nombre>_pt" aprobada. Si no hay, null y el llamador
   // no manda nada. Nunca cae a la plantilla en español.
   if (registroDe(numero) === 'pt') {
@@ -119,46 +132,55 @@ export const TEXTOS = {
     vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido de info para abrir una LLC en Estados Unidos. Contame, ¿la querés para facturarle a clientes de afuera o para vender online? Si preferís, lo charlamos en una llamada corta de 15 minutos.`,
     tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido de info para abrir una LLC en Estados Unidos. Cuéntame, ¿la quieres para facturarle a clientes de afuera o para vender online? Si prefieres, lo charlamos en una llamada corta de 15 minutos.`,
     pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Recebi seu pedido de informações para abrir uma LLC nos Estados Unidos. Me conta, você quer a LLC para faturar para clientes de fora ou para vender online? Se preferir, a gente conversa numa ligação rápida de 15 minutos.`,
+    en: (n) => `Hi ${n}, how's it going? Daniel here from Start Companies. I got your request about opening an LLC in the US. Quick question: is it to invoice clients abroad or to sell online? If it's easier, we can talk it through on a quick 15-minute call.`,
   },
   lili: {
     vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que te interesa la cuenta con Lili. ¿Ya tenés tu LLC abierta o arrancás de cero? Si querés lo vemos en una llamada corta de 15 minutos.`,
     tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que te interesa la cuenta con Lili. ¿Ya tienes tu LLC abierta o empiezas de cero? Si quieres lo vemos en una llamada corta de 15 minutos.`,
     pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Vi que você tem interesse na conta com a Lili. Você já tem sua LLC aberta ou vai começar do zero? Se quiser, a gente vê isso numa ligação rápida de 15 minutos.`,
+    en: (n) => `Hi ${n}, how are you? Daniel here from Start Companies. I saw you're interested in the Lili account. Do you already have your LLC, or are you starting from scratch? Happy to walk you through it on a quick 15-minute call.`,
   },
   socios: {
     vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que te interesa abrir una LLC para vos. ¿Ya sabés desde qué país vas a operar? Si querés lo vemos juntos en una llamada corta de 15 minutos.`,
     tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que te interesa abrir una LLC para ti. ¿Ya sabes desde qué país vas a operar? Si quieres lo vemos juntos en una llamada corta de 15 minutos.`,
     pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Vi que você tem interesse em abrir uma LLC para você. Já sabe de qual país vai operar? Se quiser, a gente vê junto numa ligação rápida de 15 minutos.`,
+    en: (n) => `Hi ${n}, how are you? Daniel here from Start Companies. I saw you're looking to open an LLC for yourself. Do you know yet which country you'll be running it from? We can figure it out together on a quick 15-minute call.`,
   },
   panel: {
     vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido del panel gratis para tu LLC. Te llamo para activártelo y mostrarte cómo facturar y ver tus vencimientos desde ahí. ¿Te queda bien hoy o preferís mañana?`,
     tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido del panel gratis para tu LLC. Te llamo para activártelo y mostrarte cómo facturar y ver tus vencimientos desde ahí. ¿Te queda bien hoy o prefieres mañana?`,
     pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Recebi seu pedido do painel grátis para a sua LLC. Vou te ligar para ativar e te mostrar como faturar e ver seus vencimentos por lá. Fica bom hoje ou prefere amanhã?`,
+    en: (n) => `Hi ${n}, how are you? Daniel here from Start Companies. I got your request for the free dashboard for your LLC. I'd like to give you a quick call to set it up and show you how to send invoices and keep an eye on your deadlines from there. Does today work, or is tomorrow better?`,
   },
   panelSin: {
     vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido del panel gratis. Como todavía no tenés LLC, te cuento cómo abrirla y el panel te queda incluido. ¿Te llamo 10 minutos hoy o preferís mañana?`,
     tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Me llegó tu pedido del panel gratis. Como todavía no tienes LLC, te cuento cómo abrirla y el panel te queda incluido. ¿Te llamo 10 minutos hoy o prefieres mañana?`,
     pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Recebi seu pedido do painel grátis. Como você ainda não tem LLC, te explico como abrir e o painel já vem incluído. Te ligo 10 minutos hoje ou prefere amanhã?`,
+    en: (n) => `Hi ${n}, how are you? Daniel here from Start Companies. I got your request for the free dashboard. Since you don't have an LLC yet, I can walk you through opening one, and the dashboard comes included. Can I call you for 10 minutes today, or is tomorrow better?`,
   },
   partner: {
     vos: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que querés sumarte como socio para ofrecer LLCs en Estados Unidos a tus clientes. ¿Hoy ya trabajás con emprendedores que facturan en dólares? Si querés te cuento cómo funciona en una llamada corta.`,
     tu: (n) => `Hola ${n}, ¿cómo estás? Soy Daniel, de Start Companies. Vi que quieres sumarte como socio para ofrecer LLCs en Estados Unidos a tus clientes. ¿Hoy ya trabajas con emprendedores que facturan en dólares? Si quieres te cuento cómo funciona en una llamada corta.`,
     pt: (n) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Vi que você quer ser parceiro para oferecer LLCs nos Estados Unidos aos seus clientes. Você já trabalha com empreendedores que faturam em dólar? Se quiser, te explico como funciona numa ligação rápida.`,
+    en: (n) => `Hi ${n}, how are you? Daniel here from Start Companies. I saw you'd like to partner with us and offer US LLCs to your clients. Are you already working with people who get paid in dollars? I can tell you how it works on a short call.`,
   },
   seguimiento: {
     vos: (n, dato) => `Hola ${n}, Daniel de Start Companies otra vez. Te dejo un dato que suele destrabar la decisión: ${dato} Si querés lo vemos en una videollamada de 15 minutos, ¿te va mañana o pasado?`,
     tu: (n, dato) => `Hola ${n}, Daniel de Start Companies otra vez. Te dejo un dato que suele destrabar la decisión: ${dato} Si quieres lo vemos en una videollamada de 15 minutos, ¿te va mañana o pasado?`,
     pt: (n, dato) => `Olá ${n}, aqui é o Daniel da Start Companies de novo. Deixo uma informação que costuma ajudar na decisão: ${dato} Se quiser, a gente vê isso numa videochamada de 15 minutos, pode ser amanhã ou depois?`,
+    en: (n, dato) => `Hi ${n}, Daniel again from Start Companies. Here's something that usually helps people make up their mind: ${dato} If you want, we can go over it on a 15-minute video call. Does tomorrow or the day after work for you?`,
   },
   horarios: {
     vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel otra vez, de Start Companies. Te paso lo que tengo libre para la asesoría de 15 minutos: ${libres}. ¿Cuál te queda mejor? Me decís y te la dejo reservada.`,
     tu: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel otra vez, de Start Companies. Te paso lo que tengo libre para la asesoría de 15 minutos: ${libres}. ¿Cuál te queda mejor? Me dices y te la dejo reservada.`,
     pt: (n, libres) => `Olá ${n}, tudo bem? Aqui é o Daniel de novo, da Start Companies. Te passo os horários livres para a assessoria de 15 minutos: ${libres}. Qual fica melhor para você? Me diz e eu deixo reservado.`,
+    en: (n, libres) => `Hi ${n}, how's it going? Daniel again from Start Companies. Here's what I have open for the 15-minute call: ${libres}. Which one works best for you? Just let me know and I'll hold it for you.`,
   },
   confirmacion: {
     vos: (n, cuando, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Mañana tenés la asesoría el ${cuando}. Si te viene bien, contestame que sí y listo. Si te complica, tengo libre ${libres}: decime cuál y la paso.`,
     tu: (n, cuando, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Mañana tienes la asesoría el ${cuando}. Si te viene bien, contéstame que sí y listo. Si te complica, tengo libre ${libres}: dime cuál y la paso.`,
     pt: (n, cuando, libres) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Amanhã você tem a assessoria: ${cuando}. Se estiver tudo certo, me responde que sim. Se não der, tenho livre ${libres}: me diz qual e eu mudo.`,
+    en: (n, cuando, libres) => `Hi ${n}, how's it going? Daniel here from Start Companies. Just a heads-up that we're meeting tomorrow, ${cuando}. If that still works, reply yes and you're all set. If something came up, I also have ${libres} open. Tell me which one and I'll move it.`,
   },
   // Reserva nueva: video + Sí/No en un solo mensaje, con botones "Sí, confirmo" / "Otro horario".
   reservaVideo: {
@@ -170,6 +192,7 @@ export const TEXTOS = {
     vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Te estuve esperando en la asesoría y no pudiste entrar, ¿pasó algo? Si querés la hacemos otro día, tengo libre ${libres}. Me decís cuál te va y te la dejo reservada.`,
     tu: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Te estuve esperando en la asesoría y no pudiste entrar, ¿pasó algo? Si quieres la hacemos otro día, tengo libre ${libres}. Me dices cuál te va y te la dejo reservada.`,
     pt: (n, libres) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Fiquei te esperando na assessoria e você não conseguiu entrar, aconteceu alguma coisa? Se quiser, a gente faz outro dia, tenho livre ${libres}. Me diz qual fica bom e eu deixo reservado.`,
+    en: (n, libres) => `Hi ${n}, how's it going? Daniel here from Start Companies. I was waiting for you on the call and it looks like you couldn't make it. Everything ok? We can do it another day if you want. I have ${libres} open. Let me know which one works and I'll hold it for you.`,
   },
   noAsistioAnterior: {
     vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Vi que no pudiste entrar a la asesoría, ¿pasó algo? Si querés la hacemos otro día: tengo libre ${libres}. Decime cuál te va y te la reservo.`,
@@ -180,6 +203,7 @@ export const TEXTOS = {
     vos: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Vi que tu asesoría quedó cancelada. Si querés la hacemos otro día, tengo libre ${libres}. Me decís cuál te va y te la dejo reservada.`,
     tu: (n, libres) => `Hola ${n}, ¿cómo va? Soy Daniel, de Start Companies. Vi que tu asesoría quedó cancelada. Si quieres la hacemos otro día, tengo libre ${libres}. Me dices cuál te va y te la dejo reservada.`,
     pt: (n, libres) => `Olá ${n}, tudo bem? Sou o Daniel, da Start Companies. Vi que sua assessoria foi cancelada. Se quiser, a gente faz outro dia, tenho livre ${libres}. Me diz qual fica bom e eu deixo reservado.`,
+    en: (n, libres) => `Hi ${n}, how's it going? Daniel here from Start Companies. I saw your call got canceled, no worries. We can do it another day if you want. I have ${libres} open. Just tell me which one works and I'll hold it for you.`,
   },
 };
 TEXTOS.ctwa = TEXTOS.meta;
@@ -224,14 +248,18 @@ export const esSondeo = (texto) => {
   return SONDEO.slice(2).some(pega);
 };
 /** Una sola vez, firme y sin discutir. Después, silencio. */
-export const avisoSeguridad = (numero) => (registroDe(numero) === 'pt'
+export const avisoSeguridad = (numero, idioma = '') => (esIngles(idioma) && registroDe(numero) !== 'pt'
+  ? 'That information is internal to the company and we don\'t share it. Attempts to access our data or systems are logged and investigated as computer crimes. If you want, we can keep going with your LLC.'
+  : registroDe(numero) === 'pt'
   ? 'Essa informação é interna da empresa e não a compartilhamos. Tentativas de acessar dados ou sistemas ficam registradas e são investigadas como crime informático. Se quiser, seguimos com a sua LLC.'
   : registroDe(numero) === 'vos'
   ? 'Esa información es interna de la empresa y no la compartimos. Los intentos de acceder a datos o sistemas quedan registrados y se investigan como delito informático. Si querés, seguimos con lo de tu LLC.'
   : 'Esa información es interna de la empresa y no la compartimos. Los intentos de acceder a datos o sistemas quedan registrados y se investigan como delito informático. Si quieres, seguimos con lo de tu LLC.');
 
 /** Una línea al que dice que no (botón "No me interesa" o texto). Después, silencio. */
-export const despedidaDe = (numero) => (registroDe(numero) === 'pt'
+export const despedidaDe = (numero, idioma = '') => (esIngles(idioma) && registroDe(numero) !== 'pt'
+  ? 'No problem, thanks for letting me know. If you want to pick it up again later, just message me here.'
+  : registroDe(numero) === 'pt'
   ? 'Tudo bem, obrigado por avisar. Se mais pra frente quiser retomar, me escreve por aqui e a gente vê.'
   : registroDe(numero) === 'vos'
   ? 'Dale, gracias por avisarme. Si más adelante lo retomás, escribime por acá y lo vemos.'
@@ -239,8 +267,11 @@ export const despedidaDe = (numero) => (registroDe(numero) === 'pt'
 /** El texto que corresponde a la plantilla elegida (gemela "_tu" → tuteo). */
 export const textoDe = (clave, plantilla, ...args) => {
   const p = String(plantilla);
-  const reg = p.endsWith('_pt') ? 'pt' : p.endsWith('_tu') ? 'tu' : 'vos';
-  const texto = (TEXTOS[clave][reg] || TEXTOS[clave].tu)(...args);
+  // _util_btn_en (no asistió para +1) tiene el mismo texto que la _en salvo la primera frase.
+  const reg = p.endsWith('_en') ? 'en' : p.endsWith('_pt') ? 'pt' : p.endsWith('_tu') ? 'tu' : 'vos';
+  const texto = p.endsWith('_util_btn_en') && clave === 'noAsistio'
+    ? `Hi ${args[0]}, how's it going? Daniel here from Start Companies. I saw you couldn't make it to your call today, no worries. We can do it another day if you want. I have ${args[1]} open. Just tell me which one works and I'll hold it for you.`
+    : (TEXTOS[clave][reg] || TEXTOS[clave].tu)(...args);
   return p.includes('sdr_matias_') ? texto.replace(/Daniel/g, 'Matías') : texto;
 };
 
@@ -591,7 +622,10 @@ export async function proponer({ lead, numero, hilo = [], ultimo, hoy = '', esta
   const contenido = [
     ficha.length ? `FICHA (datos firmes de esta conversación): ${ficha.join(' · ')}` : '',
     molesto ? 'SITUACIÓN: el lead está molesto. Primero pedí disculpas concretas por lo que pasó (mirá la conversación y la FICHA), sin excusas técnicas, y en el mismo mensaje resolvé lo que falta. Nada de venta ni datos nuevos. No lo llames por el nombre.' : '',
-    `Lead: ${nombre || '(sin nombre)'} · país: ${pais} · registro: ${registroDe(numero) === 'pt' ? 'PORTUGUÉS DE BRASIL (respondé siempre en portugués de Brasil, natural, sin voseo ni tuteo en español)' : registroDe(numero) === 'vos' ? 'VOS (voseo rioplatense)' : 'TÚ (español neutro, sin voseo)'} · llegó por: ${llegoPorPanel || llegoPor}`,
+    `Lead: ${nombre || '(sin nombre)'} · país: ${pais} · registro: ${registroDe(numero) === 'pt' ? 'PORTUGUÉS DE BRASIL (respondé siempre en portugués de Brasil, natural, sin voseo ni tuteo en español)' : /english/i.test(String(lead?.Idioma || '')) ? 'INGLÉS (su ficha dice English: respondé siempre en inglés natural y cercano)' : registroDe(numero) === 'vos' ? 'VOS (voseo rioplatense)' : 'TÚ (español neutro, sin voseo)'} · llegó por: ${llegoPorPanel || llegoPor}`,
+    // 10-nov-2026: un +52 escribió "Hello" y Daniel le contestó en español, porque el
+    // registro sale solo del prefijo. El vos/tú es para el español; el idioma lo pone el lead.
+    'IDIOMA: contestá en el idioma en que te escribe el lead. Si sus mensajes están en inglés, respondé en inglés natural aunque el registro diga vos o tú (el registro es solo para cuando escribe en español). Un "ok", un emoji o un link no cuentan: ahí seguí con el registro.',
     yaAgendo
       ? 'IMPORTANTE: este lead YA AGENDÓ su asesoría. No le pidas que agende, no le mandes ningún link ni le vendas nada: contestale corto y amable a lo que pregunta y decile que lo esperamos en la reunión. EXCEPCIÓN: si avisa que no puede ir o pide reprogramar, accion.tipo = "ofrecer_horarios" (y si elige uno, "reservar"): la reunión anterior se cancela sola.'
       : `Link de agenda (solo si el lead prefiere elegir él): ${LINKS[origen]}`,

@@ -28,6 +28,7 @@ export function paisDe(l) {
 
 export function flujoDe(l) {
   const t = etiquetas(l);
+  if (/referid/i.test(l.Lead_Source || '') || t.some((x) => /^referid/i.test(x))) return 'Referido';
   if (l.Tipo === 'Posible Partner' || t.includes('Form Socios Meta') || t.includes('Partner Web')) return 'Socio';
   if (/plataforma/i.test(l.Landing_Origen || '') || t.some((x) => /^(Form Panel Gratis|Panel Gratis)/.test(x))) return 'Plataforma';
   if (l.Lead_Status === 'Retargeting Lili' || t.some((x) => /^(Form LiliBank|Form Lili Sep|Cuenta Bancaria - Lili)$/.test(x))) return 'Lili';
@@ -42,7 +43,9 @@ export function cambioDe(l, { vencida = false } = {}) {
   const pais = paisDe(l);
   const deDaniel = l.Owner?.id === DANIEL_ID;
   const e = l.Etapa_Daniel || null;
-  if (!pais && !e) return null;
+  // 6-nov-2026, Ignacio: Daniel llama a todos hasta que llegan a la llamada, también partners y referidos
+  // (el responsable de esos sigue siendo Santiago). El lead en inglés sigue afuera: Daniel habla español y portugués.
+  if (!e && !deDaniel && l.Idioma === 'English') return null;
   if (!deDaniel && !e) {
     if (!ACTIVOS.has(l.Lead_Status)) return null;
     if (String(l.Created_Time || '').slice(0, 10) < DESDE_ARGENTINA) return null;
@@ -67,7 +70,8 @@ export function cambioDe(l, { vencida = false } = {}) {
     etapa = 'Por llamar';
   }
   if (etapa !== e) c.Etapa_Daniel = etapa;
-  if (pais && l.Pa_s_Daniel !== pais) c.Pa_s_Daniel = pais;
+  const paisTablero = pais || 'Otro país';
+  if (l.Pa_s_Daniel !== paisTablero) c.Pa_s_Daniel = paisTablero;
   const flujo = flujoDe(l);
   if (l.Flujo_Daniel !== flujo) c.Flujo_Daniel = flujo;
   return Object.keys(c).length ? c : null;
@@ -95,4 +99,4 @@ export function leadsConReunionVencida(reuniones, ahora = Date.now()) {
   return vencidas;
 }
 
-export const CAMPOS = 'Full_Name,Owner,Lead_Status,Asistio_al_Meeting,Etapa_Daniel,Etapa_Thais,Pa_s_Daniel,Flujo_Daniel,Idioma,Mobile,Phone,Country,Tipo,Tag,Landing_Origen,Created_Time';
+export const CAMPOS = 'Full_Name,Owner,Lead_Status,Asistio_al_Meeting,Etapa_Daniel,Etapa_Thais,Pa_s_Daniel,Flujo_Daniel,Idioma,Mobile,Phone,Country,Tipo,Tag,Landing_Origen,Lead_Source,Created_Time';

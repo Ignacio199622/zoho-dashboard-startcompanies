@@ -69,7 +69,7 @@ function mensajesEntrantes(cuerpo) {
         if (m.type === 'button' && m.button?.text) texto = m.button.text;
         if (m.type === 'interactive' && m.interactive?.button_reply?.title) texto = m.interactive.button_reply.title;
         if (!texto) continue;
-        if (m.type !== 'text') boton = /no me interesa|n[aã]o tenho interesse/i.test(texto) ? 'baja' : /agendar/i.test(texto) ? 'agendar' : 'otro';
+        if (m.type !== 'text') boton = /no me interesa|n[aã]o tenho interesse|not interested/i.test(texto) ? 'baja' : /agendar|book a call|reschedule|yes, call me/i.test(texto) ? 'agendar' : 'otro'; // botones en inglés: 12-nov-2026
         out.push({
           de: m.from,
           texto,
@@ -330,7 +330,7 @@ async function procesar(req) {
         await matias.marcarEvento(m.de, { sondeos: intentos, ultimoSondeo: ahora.toISOString(), frenado: 'intento de extracción', frenadoEl: ahora.toISOString() }, ahora);
         const cita = String(m.texto).slice(0, 160).replace(/\n/g, ' ');
         if (intentos === 1) {
-          const aviso = avisoSeguridad(m.de);
+          const aviso = avisoSeguridad(m.de, r.lead?.Idioma);
           if (MATIAS_ENVIA) {
             await matias.enviarTexto(m.de, aviso).catch((e) => console.log(`aviso de seguridad no salió: ${e.message}`));
             await hilo.agregar(m.de, 'nosotros', aviso, ahora);
@@ -350,7 +350,7 @@ async function procesar(req) {
         const estadoPrevio = await matias.estadoDe(m.de);
         await matias.cerrarApertura(m.de, m.boton === 'baja' ? 'no le interesa (botón)' : 'no le interesa', ahora);
         if (!estadoPrevio.cerrado) {
-          const adios = despedidaDe(m.de);
+          const adios = despedidaDe(m.de, r.lead?.Idioma);
           if (MATIAS_ENVIA) {
             await matias.leidoYEscribiendo(m.de, m.id, { escribiendo: false });
             await matias.enviarTexto(m.de, adios).catch((e) => console.log(`despedida no salió: ${e.message}`));

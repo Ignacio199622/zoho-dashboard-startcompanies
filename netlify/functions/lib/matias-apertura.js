@@ -32,7 +32,7 @@ import { conversacionesDesde } from './conversaciones/zoho.js';
 import { candadoCliente, buscarCliente, exento } from './matias-cliente.js';
 import { candadoSocio, fuenteExtra } from './matias-candados.js';
 import { LINEA_ACTUAL, LINEAS, WABA, mandar, plantilla as armarPlantilla, registrar, enHilo, saludDelNumero, etiquetarLead, ETIQUETA_CONTACTADO } from './matias.js';
-import { origenDe, varianteDe, PLANTILLAS, paisDe, plantillaPara, textoDe, conBotones, registroDe } from './matias-cerebro.js';
+import { origenDe, varianteDe, PLANTILLAS, paisDe, plantillaPara, textoDe, conBotones, registroDe, esIngles } from './matias-cerebro.js';
 import * as hilo from './hilo.js';
 
 const SOCIAL_ID = 'leadchain0__Social_Lead_ID';
@@ -43,6 +43,16 @@ const ESPERA_MIN = 5;
 // mañana recibe su apertura a las 9, y una carga a mano de la tarde que quedó
 // para el día siguiente no se pierde. Lo ya tocado se saltea por el almacén.
 const VENTANA_MIN = 24 * 60;
+
+/** true si la marca de `apertura-<tel>` es SOLO el caché de "no es cliente" (nadie le escribió). */
+export function soloCacheDeCliente(marca) {
+  if (!marca || typeof marca !== 'string' || marca[0] !== '{') return false;
+  try {
+    const o = JSON.parse(marca);
+    return Boolean(o && typeof o === 'object' && o.cliente && o.cliente.es === false
+      && Object.keys(o).every((k) => k === 'cliente'));
+  } catch { return false; }
+}
 // Techo diario de aperturas. Entran 10 a 25 leads por día; si un día entran 200
 // es un error de Lead Chain, no demanda, y el +52 no tiene que pagarlo.
 const TOPE_DIA = Number(env.MATIAS_TOPE_DIA || 40);
@@ -165,10 +175,14 @@ export async function apagarBarrido() { await almacen().delete(CLAVE_BACKFILL).c
 
 /** Estado de las plantillas de Matías en Meta: { nombre: 'APPROVED' | 'PENDING' | ... }. Por WABA (cada línea tiene la suya). */
 export async function estadoPlantillas(waba = WABA) {
-  const r = await fetch(`https://graph.facebook.com/v21.0/${waba}/message_templates?fields=name,status&limit=100&access_token=${env.META_WHATSAPP_TOKEN}`);
-  const j = await r.json();
+  // Con paginación (12-nov-2026): con más de 100 plantillas las nuevas quedaban afuera y el bot las daba por no aprobadas.
   const out = {};
-  for (const t of j.data || []) out[t.name] = t.status;
+  let url = `https://graph.facebook.com/v21.0/${waba}/message_templates?fields=name,status&limit=100&access_token=${env.META_WHATSAPP_TOKEN}`;
+  for (let i = 0; url && i < 10; i++) {
+    const j = await (await fetch(url)).json();
+    for (const t of j.data || []) out[t.name] = t.status;
+    url = j.paging?.next || null;
+  }
   return out;
 }
 
@@ -257,7 +271,11 @@ export async function pasada({ ahora = new Date(), enviar = false } = {}) {
     // estaban apagados) NO cuenta cuando ahora sí se puede mandar: el 18-sep los 9 leads
     // del día quedaron mudos para siempre por esa marca (el +52 pasó YELLOW y volvió).
     const marca = await store.get(clave);
-    if (marca && !(enviar && /^propuesta/.test(String(marca)))) continue;
+    // El candado de cliente (matias-cliente.js) guarda su caché {"cliente":{...}} en esta
+    // MISMA clave. Si la pasada lo chequeó y no le escribió (ritmo, tope, sin plantilla),
+    // la clave quedaba y el lead se salteaba para siempre (10-nov: Jose Polo y Wanderson,
+    // form Brasil, nunca abiertos). Solo el caché de "no es cliente" NO cuenta como tocado.
+    if (marca && !soloCacheDeCliente(marca) && !(enviar && /^propuesta/.test(String(marca)))) continue;
     if (!tel) { saltear('sin teléfono'); await store.set(clave, 'sin telefono'); continue; }
     if (!String(tel).trim().startsWith('+') || !paisDe(tel)) { saltear('teléfono sin código de país'); await store.set(clave, 'sin prefijo'); continue; }
     if (esLeadDePrueba(lead)) { saltear('lead de prueba'); await store.set(clave, 'prueba'); continue; }
@@ -290,14 +308,14 @@ export async function pasada({ ahora = new Date(), enviar = false } = {}) {
     // Idioma: la plantilla va por el país del teléfono. Si el lead de una fuente extra dice
     // inglés (no hay plantillas en inglés) o portugués con un teléfono que no es de Brasil, no
     // se abre en español. Sin marca: si mañana hay plantilla, se reintenta.
-    if (fuente && /english|ingl/i.test(String(lead.Idioma || ''))) { saltear('inglés: sin plantilla en inglés'); continue; }
+    // Inglés (12-nov-2026): ya hay plantillas _en; plantillaPara las elige por el Idioma de la ficha.
     if (fuente && /portugu/i.test(String(lead.Idioma || '')) && registroDe(tel) !== 'pt') { saltear('portugués con teléfono fuera de Brasil'); continue; }
     // Panel gratis: su propia apertura (el origen queda lili/meta para el calendario).
     const variante = varianteDe(lead);
     const claveApertura = variante || origen;
-    const plantilla = plantillaPara(claveApertura, tel, plantillas);
-    // Brasil (pt) sin gemela _pt aprobada: no se abre (nunca en español). Sin marca: se reintenta.
-    if (!plantilla) { saltear('portugués: sin plantilla _pt aprobada'); continue; }
+    const plantilla = plantillaPara(claveApertura, tel, plantillas, lead.Idioma);
+    // Brasil (pt) o English sin gemela aprobada: no se abre (nunca en español). Sin marca: se reintenta.
+    if (!plantilla) { saltear(esIngles(lead.Idioma) ? 'inglés: sin plantilla _en aprobada' : 'portugués: sin plantilla _pt aprobada'); continue; }
     const nombre = lead.First_Name || String(lead.Full_Name || '').split(' ')[0] || 'qué tal';
     const texto = textoDe(claveApertura, plantilla, nombre);
 

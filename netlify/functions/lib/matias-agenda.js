@@ -18,7 +18,7 @@
  * ejecuta: el modelo nunca inventa un horario, solo elige entre los ofrecidos.
  */
 import { env } from './entorno.js';
-import { paisDe, registroDe } from './matias-cerebro.js';
+import { paisDe, registroDe, esIngles } from './matias-cerebro.js';
 import { confirmarReunion } from './conversaciones/escritura.js';
 
 // Calendarios de Cal.com por origen (id del event type). Medidos el 14-sep en el
@@ -111,7 +111,7 @@ const sumarDias = (fecha, n) => new Date(new Date(`${fecha}T12:00:00Z`).getTime(
  * alcanzaba: el 17-sep el viernes y el lunes estaban llenos, el finde no abre, y
  * Matías mandó el link "sin horarios" teniendo 12 turnos el martes).
  */
-export async function ofrecer({ origen, numero, dia, franja = '', ahora = new Date() }) {
+export async function ofrecer({ origen, numero, dia, franja = '', ahora = new Date(), idioma = '' }) {
   const tz = zonaDe(numero);
   const pt = registroDe(numero) === 'pt';
   const hoy = enZona(ahora, tz).fecha;
@@ -143,6 +143,19 @@ export async function ofrecer({ origen, numero, dia, franja = '', ahora = new Da
     nota = pt ? `${naDia(diaPedido) === 'no' ? 'No' : 'Na'} ${diaPedido} não tenho nada livre, ` : `El ${diaPedido} no tengo nada libre, `;
   }
   if (!opciones.length) return { opciones: [], texto: '', tz };
+  // Inglés (12-nov-2026): con Idioma = English la frase de la plantilla va en inglés y en 12 h:
+  // "Thursday 13 at 10:00 AM, 2:00 PM or 4:30 PM, your time in New York".
+  if (esIngles(idioma) && !pt) {
+    const DIAS_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const o = (l) => (l.length > 1 ? `${l.slice(0, -1).join(', ')} or ${l.at(-1)}` : l[0]);
+    const h12 = (iso) => new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(iso));
+    const diaEn = (iso) => { const z = enZona(iso, tz); return `${DIAS_EN[new Date(`${z.fecha}T12:00:00Z`).getUTCDay()]} ${z.num}`; };
+    const z0 = enZona(opciones[0], tz);
+    const mismoDia = opciones.every((x) => enZona(x, tz).fecha === z0.fecha);
+    const LUGAR_EN = { 'America/New_York': 'New York', 'Europe/Madrid': 'Spain', 'America/Mexico_City': 'Mexico', 'America/Argentina/Buenos_Aires': 'Argentina', 'America/Bogota': 'Colombia', 'America/Lima': 'Peru', 'America/Panama': 'Panama' };
+    const frase = `${mismoDia ? `${diaEn(opciones[0])} at ${o(opciones.map(h12))}` : o(opciones.map((x) => `${diaEn(x)} at ${h12(x)}`))}, your time in ${LUGAR_EN[tz] || nombreZona(tz)}`;
+    return { opciones, tz, nota: Boolean(nota), frase, texto: `I have ${frase} open. Which one works for you? I'll book it and you'll get the confirmation by email.` };
+  }
   if (pt) {
     const o = (l) => l.join(', ').replace(/, ([^,]*)$/, ' ou $1');
     const z0 = enZona(opciones[0], tz, true);
@@ -252,21 +265,25 @@ export function mailEn(texto) {
 export async function aplicarAccion({ p, origen, lead, numero, estado = {}, ahora = new Date() }) {
   const a = p?.accion || {};
   const tz = zonaDe(numero);
+  // Inglés (12-nov-2026): con Idioma = English las líneas fijas salen en inglés.
+  const en = esIngles(lead?.Idioma) && registroDe(numero) !== 'pt';
+  const idioma = lead?.Idioma || '';
+  const enFecha = (iso) => new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(iso));
   if (a.tipo === 'confirmar' && estado.confirmacion?.evento) {
     const c = estado.confirmacion;
     const r = await confirmarReunion(c.evento, 'Confirmó', { disparar: false });
     if (!r.ok) throw new Error(`Zoho no guardó la confirmación (quedó ${r.quedo})`);
-    return { texto: String(p.texto || '').trim() || (registroDe(numero) === 'pt' ? `Perfeito, esperamos você ${c.cuando ? `em ${c.cuando}` : describir(c.inicio, tz, true)}.` : `Perfecto, te esperamos el ${c.cuando || describir(c.inicio, tz)}.`), confirmado: { evento: c.evento, cuando: c.cuando || c.inicio } };
+    return { texto: String(p.texto || '').trim() || (en ? `Perfect, see you ${c.inicio ? enFecha(c.inicio) : c.cuando}.` : registroDe(numero) === 'pt' ? `Perfeito, esperamos você ${c.cuando ? `em ${c.cuando}` : describir(c.inicio, tz, true)}.` : `Perfecto, te esperamos el ${c.cuando || describir(c.inicio, tz)}.`), confirmado: { evento: c.evento, cuando: c.cuando || c.inicio } };
   }
   if (a.tipo === 'ofrecer_horarios') {
-    const of = await ofrecer({ origen, numero, dia: a.dia, franja: a.franja, ahora });
+    const of = await ofrecer({ origen, numero, dia: a.dia, franja: a.franja, ahora, idioma });
     // Sin horarios libres: NO se manda la intro del modelo ("te paso los espacios:") porque
     // queda vacía (17-sep: salió tres veces seguidas y el lead pidió que no le escriban más).
     // El que llama pone el link del calendario.
     if (!of.opciones.length) return { texto: '', ofrecidos: [], sinHorarios: true };
     // Si no había nada en el día o la franja que pidió, la línea previa del modelo
     // ("te paso lo de mañana a la mañana:") contradice la oferta: va solo la oferta.
-    const intro = of.nota ? (registroDe(numero) === 'pt' ? 'Certo.' : 'Dale.') : String(p.texto || '').trim().replace(/https?:\/\/\S+/g, '').trim();
+    const intro = of.nota ? (en ? 'Got it.' : registroDe(numero) === 'pt' ? 'Certo.' : 'Dale.') : String(p.texto || '').trim().replace(/https?:\/\/\S+/g, '').trim();
     return { texto: [intro, of.texto].filter(Boolean).join(' '), ofrecidos: of.opciones };
   }
   if (a.tipo === 'reservar') {
@@ -280,8 +297,8 @@ export async function aplicarAccion({ p, origen, lead, numero, estado = {}, ahor
       inicio = libres.find((o) => enZona(o, tz).fecha + 'T' + enZona(o, tz).hora === pedido);
     }
     if (!inicio) {
-      const of = await ofrecer({ origen, numero, dia: pedido.slice(0, 10), franja: '', ahora });
-      return { texto: registroDe(numero) === 'pt' ? `Esse horário não está mais livre. ${of.texto || 'Escolha outro e eu reservo.'}` : `Ese horario ya no lo tengo libre. ${of.texto || 'Elegí otro acá y queda reservado.'}`, ofrecidos: of.opciones, aviso: 'horario pedido no disponible' };
+      const of = await ofrecer({ origen, numero, dia: pedido.slice(0, 10), franja: '', ahora, idioma });
+      return { texto: en ? `That time isn't open anymore. ${of.texto || 'Pick another one and I will book it.'}` : registroDe(numero) === 'pt' ? `Esse horário não está mais livre. ${of.texto || 'Escolha outro e eu reservo.'}` : `Ese horario ya no lo tengo libre. ${of.texto || 'Elegí otro acá y queda reservado.'}`, ofrecidos: of.opciones, aviso: 'horario pedido no disponible' };
     }
     // 28-sep: el modelo casi nunca copiaba el mail en accion.email y Zoho no lo tenía:
     // M&K y Poncho lo mandaron 3 veces y la frase de abajo salió en loop (12 reservas
@@ -289,7 +306,7 @@ export async function aplicarAccion({ p, origen, lead, numero, estado = {}, ahor
     // apenas el lead lo escribe, y no vence con el hilo de 12 h).
     const email = [a.email, estado.email, lead?.Email].map((x) => String(x || '').trim()).find((x) => MAIL_VALIDO.test(x)) || '';
     if (!email) {
-      return { texto: registroDe(numero) === 'pt' ? `Certo, reservo ${describir(inicio, tz, true)} para você. Para qual e-mail eu mando a confirmação com o link da videochamada?` : `Dale, te lo reservo para el ${describir(inicio, tz)}. ¿A qué mail te mando la confirmación con el link de la videollamada?`, ofrecidos: [inicio], pendienteMail: pedido };
+      return { texto: en ? `Great, I'll book ${enFecha(inicio)} for you. What email should I send the confirmation with the video call link to?` : registroDe(numero) === 'pt' ? `Certo, reservo ${describir(inicio, tz, true)} para você. Para qual e-mail eu mando a confirmação com o link da videochamada?` : `Dale, te lo reservo para el ${describir(inicio, tz)}. ¿A qué mail te mando la confirmación con el link de la videollamada?`, ofrecidos: [inicio], pendienteMail: pedido };
     }
     const r = await reservar({ origen, inicio, lead, numero, email, respuestas: a });
     // Si venía de una reunión pendiente (confirmación), la vieja se cancela en Cal:
@@ -309,7 +326,9 @@ export async function aplicarAccion({ p, origen, lead, numero, estado = {}, ahor
     const nombre = lead?.First_Name || String(lead?.Full_Name || '').split(' ')[0] || '';
     return {
       // Sin el nombre (Ignacio, 18-sep: "un poquito más humano"; venía "Dale…" y "Listo Edgar…" seguidos).
-      texto: registroDe(numero) === 'pt'
+      texto: en
+        ? `All set, I ${mueve ? 'moved' : 'booked'} your call ${mueve ? 'to' : 'for'} ${enFecha(inicio)}, ${nombreZona(tz) === 'Miami' ? 'New York' : nombreZona(tz)} time. You'll get the confirmation with the video call link at ${email}. If anything comes up, just message me here.`
+        : registroDe(numero) === 'pt'
         ? `Pronto, ${mueve ? 'passei' : 'reservei'} sua assessoria para ${describir(inicio, tz, true)}, horário de Brasília. A confirmação com o link da videochamada vai chegar em ${email}. Qualquer coisa, me escreve por aqui.`
         : `Listo, te ${mueve ? 'pasé' : 'reservé'} la asesoría ${mueve ? 'al' : 'para el'} ${describir(inicio, tz)}, hora de ${nombreZona(tz)}. Te va a llegar la confirmación con el link de la videollamada a ${email}. ${registroDe(numero) === 'vos' ? 'Cualquier cosa, me escribís por acá.' : 'Cualquier cosa, me escribes por aquí.'}`,
       reservado: { ...r, inicio, email, cancelada },

@@ -27,7 +27,7 @@ import { getStore } from '@netlify/blobs';
 import { env } from './entorno.js';
 import { get, conversacionesDesde } from './conversaciones/zoho.js';
 import { LINEAS, LINEA_ACTUAL, lineaDe, mandar, plantilla as armarPlantilla, registrar, enHilo, fusible, estadoDe } from './matias.js';
-import { origenDe, origenDeReunion, paisDe, PLANTILLAS, nombreDe, plantillaPara, textoDe } from './matias-cerebro.js';
+import { origenDe, origenDeReunion, paisDe, PLANTILLAS, nombreDe, plantillaPara, textoDe, esIngles } from './matias-cerebro.js';
 import { esHoraDeAbrir, estadoPlantillas, conviveCon786 } from './matias-apertura.js';
 import * as hilo from './hilo.js';
 import { ofrecer } from './matias-agenda.js';
@@ -37,9 +37,11 @@ import { ofrecer } from './matias-agenda.js';
 // Mientras Meta revisa la v4 sale la v3; `plantillaNoShow` elige según el estado.
 export const PLANTILLA = PLANTILLAS.noAsistio;
 // v4 (o su gemela _tu) si Meta ya la aprobó; si no, la v3. Los textos viven en el cerebro.
-export function plantillaNoShow(estados, numero) {
-  const v4 = plantillaPara('noAsistio', numero, estados);
-  return estados[v4] === 'APPROVED' ? { clave: 'noAsistio', plantilla: v4 } : { clave: 'noAsistioAnterior', plantilla: plantillaPara('noAsistioAnterior', numero, estados) };
+export function plantillaNoShow(estados, numero, idioma = '') {
+  const v4 = plantillaPara('noAsistio', numero, estados, idioma);
+  // En inglés no hay "anterior": la _en aprobada o nada.
+  if (esIngles(idioma) || estados[v4] === 'APPROVED') return { clave: 'noAsistio', plantilla: v4 };
+  return { clave: 'noAsistioAnterior', plantilla: plantillaPara('noAsistioAnterior', numero, estados) };
 }
 
 const almacen = () => getStore({ name: 'matias', consistency: 'strong' });
@@ -47,7 +49,7 @@ const digitos = (t) => String(t || '').replace(/\D/g, '');
 const H = 3600000;
 const isoZoho = (d) => new Date(d).toISOString().replace(/\.\d{3}Z$/, '+00:00');
 const CAMPOS_EVENTO = 'id,Event_Title,Start_DateTime,Status_del_Meet,Confirmaci_n,Tipo_de_reuni_n,What_Id,Who_Id,Modified_Time';
-const CAMPOS_LEAD = 'id,First_Name,Full_Name,Mobile,Phone,Email,Lead_Status,Calendario,Tag,Tipo';
+const CAMPOS_LEAD = 'id,First_Name,Full_Name,Mobile,Phone,Email,Lead_Status,Calendario,Tag,Tipo,Idioma';
 // Estados del lead en los que la cancelada ya la sigue otro (o no hay que seguirla).
 const ESTADOS_CON_OTRO_SEGUIMIENTO = ['No Show', 'Retargeting', 'Retargeting Lili', 'Nurturing', 'No Interesado', 'Fuera de flujo', 'Convertido', 'Cliente'];
 
@@ -143,7 +145,9 @@ export async function pasadaNoShow({ ahora = new Date(), enviar = false, horasCa
     // A la cancelada no se le escribe si su ficha quedó cerrada por algo que dijo (un "no" cierra:
     // feedback 14-sep). Solo se reabre la que se cerró por silencio ("3 toques sin respuesta").
     const cancelada = ev.motivo === 'cancelada';
-    if (cancelada && estado.cerrado && !/toques sin respuesta/.test(estado.cerrado)) { await saltear(`ficha cerrada: ${estado.cerrado}`); continue; }
+    // "agendó" tampoco cierra: es justamente la reunión que ahora se canceló (Douglas, 12-nov-2026:
+    // agendó con Daniel, pidió "Preciso remarcar" y Daniel no le escribió; 22 casos así desde octubre).
+    if (cancelada && estado.cerrado && !/toques sin respuesta|^agend/.test(estado.cerrado)) { await saltear(`ficha cerrada: ${estado.cerrado}`); continue; }
     // Tampoco si ya está en otra cadencia del CRM (No Show, Retargeting, Nurturing) o salió de la
     // venta: le caerían dos seguimientos juntos (medido 11-oct: 13 de 21 canceladas ya estaban en una).
     if (cancelada && ESTADOS_CON_OTRO_SEGUIMIENTO.includes(lead.Lead_Status)) { await saltear(`ya en ${lead.Lead_Status}`); continue; }
@@ -174,12 +178,12 @@ export async function pasadaNoShow({ ahora = new Date(), enviar = false, horasCa
     const nombre = nombreDe(lead, estado);
     let of = { opciones: [], frase: '' };
     const origen = origenDeReunion(ev.Event_Title) || origenDe(lead);
-    try { of = await ofrecer({ origen, numero: tel, dia: '', franja: '', ahora }); } catch (e) { resumen.salteados.push(`${ev.Event_Title}: sin horarios (${e.message})`); }
+    try { of = await ofrecer({ origen, numero: tel, dia: '', franja: '', ahora, idioma: lead.Idioma }); } catch (e) { resumen.salteados.push(`${ev.Event_Title}: sin horarios (${e.message})`); }
     if (!of.opciones.length) { await saltear('sin horarios libres para ofrecer'); continue; }
     const { clave: claveTexto, plantilla } = cancelada
-      ? { clave: 'cancelada', plantilla: plantillaPara('cancelada', tel, plantillas) }
-      : plantillaNoShow(plantillas, tel);
-    if (!plantilla) { await saltear('portugués: sin plantilla _pt aprobada'); continue; } // Brasil: nunca en español
+      ? { clave: 'cancelada', plantilla: plantillaPara('cancelada', tel, plantillas, lead.Idioma) }
+      : plantillaNoShow(plantillas, tel, lead.Idioma);
+    if (!plantilla) { await saltear(esIngles(lead.Idioma) ? 'inglés: sin plantilla _en aprobada' : 'portugués: sin plantilla _pt aprobada'); continue; } // Brasil y English: nunca en español
     const que = cancelada ? 'Cancelada' : 'No-show';
     const aprobada = plantillas[plantilla] === 'APPROVED';
     const texto = textoDe(claveTexto, plantilla, nombre, of.frase);
