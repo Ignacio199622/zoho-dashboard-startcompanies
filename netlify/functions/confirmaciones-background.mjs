@@ -26,6 +26,7 @@ import { unaPasada as liberarPasada } from './lib/conversaciones/liberar-sin-con
 import { revisarPlantillas } from './lib/conversaciones/plantilla-pendiente.js';
 import { unaPasada as invitarThais } from './lib/conversaciones/invitar-thais.js';
 import { unaPasada as asistioAThais } from './lib/conversaciones/asistio-thais.js';
+import { unaPasada as choqueThais, textoChoque } from './lib/conversaciones/choque-thais.js';
 import { env } from './lib/conversaciones/entorno.js';
 import { ZOHO_UI } from './lib/conversaciones/config.js';
 
@@ -334,6 +335,18 @@ export default async (req) => {
       }
     } catch (e) {
       console.error(`${sello()}  invitar Thais FALLO: ${e.message}`);
+    }
+
+    // Dos reservas en portugués en el mismo horario (dos cuentas de Cal): aviso una vez por par.
+    try {
+      const ch = await choqueThais();
+      for (const x of ch.choques) {
+        if (avisados.has(x.clave)) continue;
+        avisados.add(x.clave);
+        await aSlack(textoChoque(x)).catch(() => {});
+      }
+    } catch (e) {
+      console.error(`${sello()}  choque Thais FALLO: ${e.message}`);
     }
 
     // Marcó Asistió en una reunión en portugués: el lead pasa a Thais (ver lib/conversaciones/asistio-thais.js).
