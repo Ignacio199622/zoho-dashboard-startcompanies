@@ -253,7 +253,10 @@ export const leeLaFecha = (lead) =>
 // Desde el 2-nov-2026 trae ademas lo que mira el candado de socio
 // (Bloqueo_de_envio, Tipo_de_Contacto, Nombre_de_Partner, la LLC) y el pais.
 const CAMPOS_GUARDIA = 'id,Full_Name,Owner,Aviso_Fuera_Horario,Motivo_Cierre,Vuelta_Habil,Email,Mobile,Phone,'
-  + 'Account_Name,Bloqueo_de_envio,Tipo_de_Contacto,Nombre_de_Partner,Codigo_de_Pais';
+  + 'Account_Name,Bloqueo_de_envio,Tipo_de_Contacto,Nombre_de_Partner,Codigo_de_Pais,'
+  // 16-nov-2026: sin Idioma, a los CLIENTES (Contacts) la guardia les escribia las
+  // variables en español aunque la regla de Zoho eligiera la plantilla PT (Jorge moro).
+  + 'Idioma';
 
 /**
  * La LLC del contacto con lo que dice si es de un socio. Solo lectura. null si

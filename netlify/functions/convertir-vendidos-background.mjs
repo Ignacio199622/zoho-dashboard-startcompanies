@@ -20,7 +20,9 @@ import { tokenZoho } from './lib/aprobacion.js';
 const API = 'https://www.zohoapis.com/crm/v6';
 const DIAS = 3;
 const MAX_POR_CORRIDA = 10;
-const COPIAR = ['Lead_Source','Landing_Origen','Calendario','Canal_de_contacto','Referido','utm_source','utm_medium','utm_campaign','utm_content','utm_term','utm_id','Anuncio','Campa_a_Meta','Conjunto_de_anuncios','creativeId','Url_del_anuncio','Preview_del_anuncio','fbclid','fbc','fbp','leadchain0__Social_Lead_ID','Ultima_plantilla_enviada','Fecha_ultimo_mensaje','Version_de_cadencia'];
+const COPIAR = ['Lead_Source','Landing_Origen','Calendario','Canal_de_contacto','Referido','utm_source','utm_medium','utm_campaign','utm_content','utm_term','utm_id','Anuncio','Campa_a_Meta','Conjunto_de_anuncios','creativeId','Url_del_anuncio','Preview_del_anuncio','fbclid','fbc','fbp','leadchain0__Social_Lead_ID','Ultima_plantilla_enviada','Fecha_ultimo_mensaje','Version_de_cadencia',
+  // 16-nov-2026: el contacto nace sin Idioma (lo crea el portal); el del lead se copia solo si está vacío.
+  'Idioma'];
 const hay = (v) => v !== null && v !== undefined && String(v).trim() !== '' && !(Array.isArray(v) && !v.length);
 const tel9 = (t) => String(t || '').replace(/\D/g, '').slice(-9);
 const transitoria = (v) => !v || /^WHATSAPP|^WhatsApp - |wwebjs|^Chatbot|Bot$|^TimelinesAI|^Sin dato|^Landing Page$|^Web Organic$/.test(String(v));

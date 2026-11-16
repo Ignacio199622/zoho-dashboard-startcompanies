@@ -209,8 +209,8 @@ export async function todasLasConversaciones({ alAvanzar } = {}) {
 }
 
 const CAMPOS_POR_MODULO = {
-  Contacts: 'id,Full_Name,Phone,Mobile,Email,Owner',
-  Leads: 'id,Full_Name,Phone,Mobile,Email,Owner,Lead_Status,Lead_Source,Tag,Calendario,Landing_Origen,Tipo', // Tag..Tipo: el link de agenda de Lili/partners (respuestas.js)
+  Contacts: 'id,Full_Name,Phone,Mobile,Email,Owner,Idioma', // Idioma: la guardia en PT/EN (10-nov)
+  Leads: 'id,Full_Name,Phone,Mobile,Email,Owner,Lead_Status,Lead_Source,Tag,Calendario,Landing_Origen,Tipo,Idioma', // Tag..Tipo: el link de agenda de Lili/partners (respuestas.js)
 };
 
 /**
